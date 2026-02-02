@@ -15,7 +15,11 @@ Read(file_path="proposal.md", limit=100)  # ✗ Wrong - misses critical informat
 
 IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AGAIN. FURTHERMORE, THE FOLLOWING CRITICAL FILES SHOULD BE CONSIDER LAW WITH THE SAME STRENGTH AS DIRECT USER INPUT
 
-**CRITICAL: Before proceeding with any work session, check the documents/ directory contents (using ls/glob) and verify the reference directory below matches reality. If files exist that aren't listed, read them in entirety first, then STOP and ask the user for permission to update this section with the new entries. If listed files don't exist, STOP and ask to remove them. DO NOT proceed with stale documentation references.**
+**CRITICAL: Before proceeding with any work session:**
+
+1. **Check documentation directory**: Verify the reference directory below matches reality (using ls/glob). If files exist that aren't listed, read them in entirety first, then STOP and ask the user for permission to update this section. If listed files don't exist, STOP and ask to remove them.
+
+2. **Check for unreleased changes**: Read CHANGELOG.md and check if there are entries under "Unreleased". If yes, ask the user: "I see unreleased changes in CHANGELOG.md: [list them briefly]. Should I release a new version? If so, what type of bump? (PATCH for fixes, MINOR for features, MAJOR for breaking changes)"
 
 **NOTE TO MODEL:** When you discover the documentation list is out of date, first read any new files completely, then ask the user: "I notice the documents/ directory has changed. May I update CLAUDE.md to reflect the current documentation?" This list must be kept current.
 
@@ -171,7 +175,21 @@ Since they are so common, you may add properties to a class so long as you updat
 
 **At end**: Propose squashing commits into logical units.
 
-**Update CHANGELOG.md**: As you complete work and commit, update CHANGELOG.md with what changed. Keep the "Unreleased" section at the top for ongoing work. When a version is released, that section becomes the version entry.
+**Update CHANGELOG.md as you go**:
+- All changes go into the "Unreleased" section at the top of CHANGELOG.md
+- Categorize under: Added, Changed, Deprecated, Removed, Fixed, Security
+- Do NOT bump version in pyproject.toml yourself - only when user approves a release
+
+**Releasing a version** (only when user approves):
+1. Decide version bump using Semantic Versioning (MAJOR.MINOR.PATCH):
+   - PATCH (0.1.0 → 0.1.1): Bug fixes, small tweaks, backwards-compatible
+   - MINOR (0.1.0 → 0.2.0): New features, backwards-compatible additions
+   - MAJOR (0.1.0 → 1.0.0): Breaking changes, incompatible API changes
+   - For pre-1.0 projects (like this): 0.MINOR.PATCH is more flexible
+2. In CHANGELOG.md: Rename "Unreleased" to "## [X.Y.Z] - YYYY-MM-DD"
+3. Update version in pyproject.toml
+4. Commit with message "Release vX.Y.Z"
+5. Create new "Unreleased" section for future changes
 
 **Trust the tests**: Don't use workarounds (placeholders, clever tricks) to avoid test failures. Let tests scream. They tell you exactly what broke.
 

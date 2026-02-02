@@ -19,10 +19,13 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 
 1. **Check documentation directory**: Verify the reference directory below matches reality (using ls/glob). If files exist that aren't listed, read them in entirety first, then STOP and ask the user for permission to update this section. If listed files don't exist, STOP and ask to remove them.
 
-2. **Check for unreleased changes**: Read CHANGELOG.md and check if there are entries under "Unreleased". If yes, analyze the changes and propose appropriate version bump(s) with reasoning:
+2. **Check for unreleased changes**: Read CHANGELOG.md and check if there are entries under "Unreleased". Also do a lightweight check of recent git commits to see if anything is missing:
+   - Run `git log --oneline` for recent commits since last version
+   - Quickly scan commit messages - do they describe work not reflected in CHANGELOG?
+   - If commits are missing from CHANGELOG, note them in your proposal
    - Assess whether changes are fixes (PATCH), features (MINOR), or breaking (MAJOR)
-   - Consider if multiple versions make sense (e.g., if there are both completed features and fixes)
-   - Propose: "I see unreleased changes in CHANGELOG.md: [summarize]. I recommend releasing v[X.Y.Z] because [reasoning]. Should I proceed?"
+   - Consider if multiple versions make sense (e.g., if there are distinct completed feature sets, or if user forgot to update CHANGELOG for a while and there are multiple types of changes)
+   - Propose: "I see unreleased changes in CHANGELOG.md: [summarize]. I also found these git commits not in CHANGELOG: [list if any]. I recommend releasing v[X.Y.Z] because [reasoning]. Should I proceed?"
    - Don't just ask "should I release?" - provide analysis and recommendation
 
 **NOTE TO MODEL:** When you discover the documentation list is out of date, first read any new files completely, then ask the user: "I notice the documents/ directory has changed. May I update CLAUDE.md to reflect the current documentation?" This list must be kept current.

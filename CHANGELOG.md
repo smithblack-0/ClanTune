@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated CLAUDE.md with session bootup checklist (documentation check, release check)
+- Updated CLAUDE.md with session bootup checklist (documentation check, release check with analysis and reasoning)
 - Updated CLAUDE.md with versioning workflow (Unreleased pattern, semantic versioning rules)
+- Release proposals now include analysis and reasoning instead of just asking "should I release?"
 
 ## [0.1.0] - 2026-02-02
 

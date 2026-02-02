@@ -171,6 +171,8 @@ Since they are so common, you may add properties to a class so long as you updat
 
 **At end**: Propose squashing commits into logical units.
 
+**Update CHANGELOG.md**: As you complete work and commit, update CHANGELOG.md with what changed. Keep the "Unreleased" section at the top for ongoing work. When a version is released, that section becomes the version entry.
+
 **Trust the tests**: Don't use workarounds (placeholders, clever tricks) to avoid test failures. Let tests scream. They tell you exactly what broke.
 
 **Why this matters**: Presume you will screw up. If you have incremental commits, you can roll back to last good state. Without them, you're stuck manually untangling a mess.

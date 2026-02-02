@@ -81,11 +81,13 @@ Walks multiple allele trees in parallel (depth-first, children-first). At each n
 3. Flattens metadata: replaces allele entries with their `.value`, leaving raw values unchanged
 4. Passes a list of flattened alleles (one per input tree) to `handler`
 5. If `handler` returns a value (not None), collects it in the result list
-6. Returns list of all values yielded by `handler` across the entire walk; skip if everything was none. 
+6. Returns generator of a list of values yielded by relevent `handler` across the entire walk; skip if everything was none. 
 
 **Flattened allele:** An Allele where `metadata` contains only raw values (allele entries replaced with their `.value`).
 
 **Use case:** Inspection, collection, comparison. Crossbreeding strategies use this to see multiple parents' values side-by-side.
+
+**Error Conditions**: Node or output values being of different types is an error condition. 
 
 ### synthesize_allele_trees
 
@@ -109,6 +111,7 @@ Walks multiple trees and synthesizes a single result tree. At each node:
 
 **Handler contract:** Returns only the new value. The utility handles rebuilding the allele with that value and the updated metadata.
 **Use case:** Mutation strategies (transform one tree), crossbreeding strategies (combine multiple trees).
+**Error Conditions**: Node or output values being of different types is an error condition. 
 
 ### Instance Methods: walk_tree / update_tree
 
@@ -287,7 +290,7 @@ The handler never sees nested alleles — `node.metadata["std"]` is a raw float.
 
 - Value is never an allele. Always a raw type.
 - Metadata can contain alleles or raw values. Alleles recurse, raw values don't.
-- Use  `include_can_mutate=False` or `include_can_crossbreed=False` to override this behavior.
+- Use  `include_can_mutate=False` or `include_can_crossbreed=False` to exclude marked nodes while walking. 
 - Alleles are immutable. All modifications return new instances.
 - Domain must match allele type.
 - Tree utilities flatten metadata before calling handlers.
@@ -295,3 +298,4 @@ The handler never sees nested alleles — `node.metadata["std"]` is a raw float.
 - Domain validation and clamping happens in `__init__` and `with_value`.
 - Users extend concrete types (FloatAllele, etc.) for strategy-specific alleles, not AbstractAllele.
 - Handlers in `synthesize_allele_trees` return only the new value, not a new allele.
+- When walking trees in parallel, all nodes must be the same type or the walkers will throw. 

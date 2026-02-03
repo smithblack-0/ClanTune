@@ -314,6 +314,129 @@ class AbstractAllele(ABC):
         pass
 
 
+class FloatAllele(AbstractAllele):
+    """
+    Floating point allele with linear semantics.
+
+    Domain is a dict with optional "min" and "max" keys defining the valid range.
+    Values are clamped to bounds during construction and with_value().
+    Anything not provided is unbounded (indicated by absence from domain dict).
+    max can be None for unbounded above.
+
+    Example:
+        >>> allele = FloatAllele(0.5, domain={"min": 0.0, "max": 1.0})
+        >>> allele.value
+        0.5
+        >>> clamped = FloatAllele(1.5, domain={"min": 0.0, "max": 1.0})
+        >>> clamped.value
+        1.0
+        >>> unbounded = FloatAllele(100.0)
+        >>> unbounded.value
+        100.0
+    """
+
+    def __init__(
+        self,
+        value: float,
+        domain: Optional[Dict[str, Optional[float]]] = None,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize a FloatAllele.
+
+        Args:
+            value: The float value
+            domain: Dict with "min" and "max" keys. None indicates unbounded.
+                If not provided, defaults to fully unbounded.
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict
+        """
+        # Normalize domain to always have both keys
+        if domain is None:
+            self._domain = {"min": None, "max": None}
+        else:
+            self._domain = {
+                "min": domain.get("min"),
+                "max": domain.get("max"),
+            }
+
+        # Clamp value to domain bounds
+        clamped_value = value
+        if self._domain["min"] is not None:
+            clamped_value = max(self._domain["min"], clamped_value)
+        if self._domain["max"] is not None:
+            clamped_value = min(self._domain["max"], clamped_value)
+
+        super().__init__(clamped_value, can_mutate, can_crossbreed, metadata)
+
+    @property
+    def value(self) -> float:
+        """The float value."""
+        return super().value
+
+    @property
+    def domain(self) -> Dict[str, Optional[float]]:
+        """Return domain constraints (copy for safety)."""
+        return self._domain.copy()
+
+    def with_overrides(self, **constructor_overrides: Any) -> "FloatAllele":
+        """
+        Construct new FloatAllele with specified overrides.
+
+        Args:
+            **constructor_overrides: Constructor arguments to override
+
+        Returns:
+            New FloatAllele instance
+        """
+        return FloatAllele(
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize FloatAllele-specific fields.
+
+        Returns:
+            Dict with value, domain, and flags
+        """
+        return {
+            "value": self.value,
+            "domain": self.domain,
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
+        }
+
+    @classmethod
+    def deserialize_subclass(
+        cls, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> "FloatAllele":
+        """
+        Deserialize FloatAllele from data.
+
+        Args:
+            data: Serialized data dict
+            metadata: Pre-deserialized metadata
+
+        Returns:
+            Reconstructed FloatAllele
+        """
+        return cls(
+            value=data["value"],
+            domain=data.get("domain"),
+            can_mutate=data.get("can_mutate", True),
+            can_crossbreed=data.get("can_crossbreed", True),
+            metadata=metadata,
+        )
+
+
 # Tree utility functions (to be implemented)
 
 

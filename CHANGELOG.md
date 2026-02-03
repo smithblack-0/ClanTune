@@ -12,12 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite for AbstractAllele (38 black-box tests)
 - Tree walking stubs (walk_tree, update_tree) with injection parameters for testability
 - Organized test directory structure (tests/genetics/alleles/)
+- FloatAllele concrete type with linear semantics, min/max clamping, and type-narrowed value property
 
 ### Fixed
 - Removed black-box testing violations (schema coupling in serialization tests)
 - Test fixtures now use public properties instead of private fields
 - Replaced registry inspection tests with behavior-based round-trip tests
 - Serialization tests validate contracts via round-trip preservation, not schema structure
+- FloatAllele domain normalization (always has "min" and "max" keys, None for unbounded)
 
 ### Changed
 - Updated CLAUDE.md with session bootup checklist (documentation check, release check with analysis and reasoning)

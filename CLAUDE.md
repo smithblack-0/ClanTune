@@ -203,43 +203,205 @@ Since they are so common, you may add properties to a class so long as you updat
 **Why this matters**: Presume you will screw up. If you have incremental commits, you can roll back to last good state. Without them, you're stuck manually untangling a mess.
 
 
-## Testing Guide
+## Testing Philosophy: Black Box Testing as a Design Forcing Function
 
 It is absolutely critical for long term maintainability that this is followed. IGNORING THIS WILL RESULT IN A REJECTION DURING AUDIT.
 
-**Black-box testing only**: Test public methods and documented behavior. Tests validate the contract is honored, not that specific implementation approaches are used.
+### What is Black Box Testing?
 
-**What you CAN test:**
-- Public methods with their documented input/output behaviors
-- Observable state via public properties/methods
-- Side effects on injected dependencies (checking optimizer.param_groups is fine - it's part of the contract)
-- Documented invariants and error conditions
+Black box testing is a development strategy this project uses to force good architecture through deliberate friction.
 
-**What you CANNOT test:**
-- Private methods or internal state (unless absolutely required - see below)
-- Implementation details (which algorithm, internal data structures)
-- Undocumented behavior
+**The Core Idea:** Black box testing makes it HARD to test badly-designed code. This difficulty is not a bug, it's the feature. When you cannot test something following black box rules, **you have found a design problem that must be fixed**.
 
-**When you MUST access private state:**
-- Create ONE helper function at the top of the test file that isolates the access
-- Name it clearly: `_test_helper_set_internal_field()` or similar
-- This is the ONLY authorized access point - keeps coupling isolated for refactoring
-- If you're accessing private state frequently, you're overcoupling - fix the design
+### The Point is Conflict Means a Design Problem
 
-**Test fixtures:**
-- Helper functions at top of test file are allowed
-- Can access/set private state for setup if no public alternative exists
-- Individual test methods should still test black-box where possible
+Black box testing enforces constraints:
+- You **must** test all public interfaces, methods, and observable behavior thoroughly
+- You **must not** access private fields or methods in tests (exception: static private methods, which are stateless)
+- You **must** minimize exposure of internal state to reduce coupling
+- You **must** test responsibilities where they actually belong
+
+These constraints inevitably create conflicts:
+
+**"I need to test this complex private method, but I can't access it."**
+→ Design problem: Extract the algorithm into a testable component. The private method should be lightweight orchestration only.
+
+**"I need to set internal state to test an edge case, but the field is private."**
+→ Design problem: The state should be injectable via constructor. If you need to manipulate it for testing, other code will need to manipulate it too.
+
+**"I need to verify serialization works, but the schema isn't documented."**
+→ Design problem: You're testing the wrong thing. The contract is "state survives round-trip," not "output has these fields."
+
+**"I can't test X without accessing private state."**
+→ Design problem: Either X should be public (it's a real responsibility), or you're testing at the wrong level.
+
+### Never Compromise - Fix the Design
+
+When black box testing creates friction, there are lazy compromises that defeat the purpose:
+
+❌ **Skip the test**: "The private method is too hard to test, I'll skip it"
+- Problem: Untested code with real responsibility
+- Real solution: Extract responsibility to testable unit
+
+❌ **Add test hooks**: "I'll add a `_set_for_test()` method just for testing"
+- Problem: Pollutes production code with test infrastructure
+- Real solution: Make state injectable via constructor
+
+❌ **Test private state directly**: "It's just one assertion on `obj._field`, not that bad"
+- Problem: Couples tests to implementation, defeats the forcing function
+- Real solution: Test observable behavior that depends on that field
+
+❌ **Weaken the test**: "I can't test the internal mechanism, so I'll skip validation"
+- Problem: Untested behavior
+- Real solution: Test the CONTRACT the mechanism provides, not the mechanism itself
+
+**The rule: When you hit friction, either refactor the code to be testable or refactor the test to test the right thing. Never compromise by weakening constraints.**
+
+### Why This Matters
+
+Black box testing forces:
+1. **Dependency injection** - Can't test without it, so you're forced to design for it
+2. **Single Responsibility Principle** - Complex private methods are untestable, forcing decomposition
+3. **Proper abstraction boundaries** - Can only test through public contract, forces clean interfaces
+4. **Testing the right things** - Can't test implementation details, forces focus on behavior
+
+Bad architecture cannot pass black box testing on all axes. The friction is doing its job.
+
+---
+
+## Public Features (Things That Must Be Tested)
+
+**Public methods and functions:**
+- Any method or function callable from outside the class
+- Include all documented parameters, return values, and side effects
+- Include error conditions (what exceptions are raised when?)
+
+**Public properties and fields:**
+- Any field accessible via `obj.field` syntax
+- Properties with getters (even if backed by private storage)
+- Documented attributes
+
+**Observable behavior:**
+- State changes visible through public interface
+- Side effects on injected dependencies (e.g., calls to optimizer.param_groups)
+- Behavior triggered by public methods
+
+**Documented contracts:**
+- Immutability (if documented, verify original unchanged after operations)
+- Domain validation (if documented, verify values clamped/rejected)
+- Preservation guarantees (if documented that X preserves Y, verify it)
+
+**Integration points:**
+- How the object interacts with dependencies
+- What it expects from injected components
+- What it provides to consumers
+
+---
+
+## Private Features (Things That Cannot Be Used in Testing)
+
+**Private fields:**
+- Any field starting with underscore (`obj._field`)
+- Even if "it's just for one assertion"
+- Exception: Reading via public properties is fine (that's the public interface)
+
+**Private methods:**
+- Any method starting with underscore (`obj._method()`)
+- Exception: Static private methods (no state) can be imported and tested as pure functions if needed
+
+**Internal implementation details:**
+- Data structure choices (dict vs list, registry vs dispatch table)
+- Algorithm specifics (how clamping is implemented)
+- Internal state management (how fields are stored)
+- Serialization schema (field names, structure, format)
+
+**Internal mechanisms:**
+- Caches, registries, lookup tables
+- Memoization state
+- Internal optimization structures
+
+**Test the behavior these enable, not their presence:**
+- Instead of "is X in cache?", test "does operation Y perform correctly?"
+- Instead of "is Type in registry?", test "does deserialize() return correct type?"
+
+---
+
+## The Encapsulation Pattern (Rare Exceptional Case)
+
+Sometimes the best decision for achieving the philosophy of black box testing is a controlled violation of its rules. **This is extremely rare and requires team approval.**
+
+**The Principle: Spirit Over Law**
+
+We want to satisfy the SPIRIT of black box testing (forcing good design, reducing coupling, testing contracts), not blindly follow the LETTER of the law. If you have exhausted refactoring options and the violation genuinely serves the philosophy better than the alternatives, use the encapsulation pattern.
+
+**The Pattern:**
+
+If you must violate black box rules (e.g., access private state for setup), isolate the violation in a single stateless helper function at the top of the test file:
+
+```python
+# Encapsulation of private state access for testing
+# VIOLATION: Accesses _internal_field directly
+# JUSTIFICATION: [Explain why this serves black box philosophy better than alternatives]
+def _test_helper_set_internal_state(obj, field_name, value):
+    """
+    Test helper to set internal state that cannot be set via public API.
+
+    This is the ONLY place in this test file that accesses private state.
+    If you need to refactor internals, change this ONE function.
+    """
+    setattr(obj, f"_{field_name}", value)
+```
+
+**Requirements:**
+- ONE function per type of violation (don't scatter violations throughout)
+- Place at TOP of test file (make it obvious)
+- Clear docstring explaining the violation and justification
+- Stateless (no hidden dependencies)
+- Team approval required
+
+**When to Consider This:**
+- Refactoring would violate other design principles more severely
+- The violation genuinely reduces coupling vs alternatives
+- You've exhausted: dependency injection, extraction, contract redesign
+- You can articulate why this serves black box philosophy
+
+**When NOT to Use This:**
+- "It's too hard to refactor" → Refactor anyway
+- "Just this once" → Fix the design
+- Testing private methods → Extract them
+- Avoiding dependency injection → Use dependency injection
+
+**If Uncertain:** Pause autonomy and discuss with team. The encapsulation pattern is a tool of last resort, not a convenience.
+
+---
+
+## When You Hit Friction
+
+1. **Stop and analyze**: Why can't I test this following black box rules?
+2. **Identify the design problem**: What assumption am I making that's causing trouble?
+3. **Refactor appropriately**:
+   - Extract complex logic to testable units
+   - Make dependencies injectable
+   - Move responsibilities to the right place
+   - Test the actual contract, not the implementation
+4. **If truly stuck**: Pause autonomy and ask - there's likely an architectural issue
+
+The friction is the point. It's telling you something is wrong.
+
+---
+
+## Test Naming and Organization
 
 **Test naming:**
 - Use role-based names: "Get State Test Suite - tests that get_state() retrieves wrapper state values"
 - NOT: "Suite 1: Get State Tests" or numbered tests
 - Use complete sentences describing what the test verifies
 
-**If you Need White Box Testing**
-- Fantastic the system is working. This means there is a bug in the objects we are testing
-- Since this is a major issue, bring up the issue to the user. 
-- Good design is the only way to pass Black Box Testing, so the tests are also a diagnostic tools for bugs in the architecture. 
+**Test fixtures:**
+- Helper functions at top of test file are allowed
+- Must use public API where possible
+- If they demonstrate implementation patterns, use best practices (public properties, not private fields)
+
 ---
 
 ##

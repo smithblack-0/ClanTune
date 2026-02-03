@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated CLAUDE.md with versioning workflow (Unreleased pattern, semantic versioning rules)
 - Release proposals now include analysis and reasoning instead of just asking "should I release?"
 - Added git history check to catch commits not reflected in CHANGELOG during release proposals
+- Rewrote CLAUDE.md testing guide with black box testing philosophy (design forcing function)
+- Added encapsulation pattern for rare controlled violations of black box rules
 
 ## [0.1.0] - 2026-02-02
 

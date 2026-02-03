@@ -9,7 +9,7 @@ for all stochastic operations.
 import json
 from typing import Dict, Any, Optional, Literal
 
-from .alleles import (
+from .old_alleles import (
     AbstractAllele,
     MetaControlAllele,
     LogAllele,

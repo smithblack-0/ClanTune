@@ -1,630 +1,333 @@
 """
-Alleles module for ClanTune genetic algorithm toolbox.
+Allele system for ClanTune genetics.
 
-Provides allele classes that encapsulate hyperparameter values, mutation logic,
-and validation rules. Each allele type knows how to mutate itself and crossbreed
-with another allele of the same type.
-
-This module provides primitives - the Genome class orchestrates calling mutate_std
-then mutate on all alleles.
+Alleles are immutable data containers representing evolvable parameters.
+They form trees via metadata, enabling metalearning where mutation parameters
+evolve alongside the values they control.
 """
 
-import random
-import math
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional, List, Callable, Generator
 
 
 class AbstractAllele(ABC):
     """
-    Base class for all allele types.
+    Abstract base class for all allele types.
 
-    An allele represents a single hyperparameter with:
-    - Current value
-    - Mutation standard deviation (which itself can mutate)
-    - Type-specific mutation logic
-    - Bounds/constraints
+    Alleles are immutable containers with five core fields:
+    - value: The actual parameter value (type depends on subclass)
+    - domain: Constraints on valid values (subclass-specific)
+    - can_mutate: Signals whether value should participate in mutation
+    - can_crossbreed: Signals whether value should participate in crossbreeding
+    - metadata: Recursive tree structure (can contain alleles or raw values)
+
+    All modifications return new instances. Subclasses are automatically registered
+    for serialization dispatch via __init_subclass__.
+
+    Subclass Implementation Requirements
+    ------------------------------------
+
+    Subclasses must implement four abstract members:
+
+    1. **domain property (Any):**
+       - Return the domain constraints for this allele type
+       - Type depends on allele: Dict[str, Any] for continuous, Set[Any] for discrete
+       - Can be stored in instance variable or computed
+       - Called during serialization
+
+    2. **with_overrides(**constructor_overrides) -> AbstractAllele:**
+       - Construct new instance with specified constructor arguments overridden
+       - Unspecified arguments should default to current state
+       - Must pass through constructor for validation
+
+    3. **serialize_subclass() -> Dict[str, Any]:**
+       - Serialize this node's fields only (value, domain, can_mutate, etc.)
+       - Do not serialize branches (metadata children) - AbstractAllele handles tree recursion
+       - Do NOT include "type" or "metadata" in returned dict
+
+    4. **deserialize_subclass(data: Dict, metadata: Dict) -> AbstractAllele:**
+       - Classmethod to reconstruct this node from serialized data
+       - metadata parameter contains pre-deserialized branches (nested alleles already reconstructed)
+       - Extract this node's fields from data dict and pass to constructor
+
+    Constructor Contract
+    --------------------
+
+    Subclass constructors should:
+    - Accept domain parameter and store it
+    - Validate and clamp value according to domain BEFORE calling super().__init__()
+    - Call super().__init__(value, can_mutate, can_crossbreed, metadata)
+    - Raise errors for invalid values that cannot be clamped
     """
 
+    _registry: Dict[str, type] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        """Auto-register subclasses for serialization dispatch."""
+        super().__init_subclass__(**kwargs)
+        AbstractAllele._registry[cls.__name__] = cls
+
     def __init__(
-            self,
-            value: float,
-            std: float,
+        self,
+        value: Any,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """
-        Initialize allele with value and std.
+        Initialize an allele.
 
         Args:
-            value: Current value of this allele
-            std: Standard deviation for mutations
+            value: The parameter value (never an allele, always raw type)
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict (can contain alleles or raw values)
+
+        Note: Subclasses should validate and clamp value according to their domain
+        before calling super().__init__().
         """
-        self.value = value
-        self.std = std
+        self._value = value
+        self._can_mutate = can_mutate
+        self._can_crossbreed = can_crossbreed
+        self._metadata = metadata if metadata is not None else {}
 
-    def mutate_std(
-            self,
-            mutation_rate: float,
-            mutation_std: float,
-            min_clamp: float,
-            max_clamp: float,
-    ) -> None:
-        """
-        Mutate this allele's std parameter.
+    @property
+    def value(self) -> Any:
+        """The actual parameter value."""
+        return self._value
 
-        Uses log-space mutation for all allele types (std is always positive).
-
-        Args:
-            mutation_rate: Probability of mutation occurring
-            mutation_std: Std used when mutating this std
-            min_clamp: Minimum allowed std value
-            max_clamp: Maximum allowed std value
-        """
-        if random.random() < mutation_rate:
-            perturbation = random.gauss(0, mutation_std)
-            new_std = self.std * math.exp(perturbation)
-            self.std = max(min_clamp, min(max_clamp, new_std))
-
+    @property
     @abstractmethod
-    def mutate(
-            self,
-            mutation_rate: float,
-    ) -> None:
+    def domain(self) -> Any:
         """
-        Mutate this allele's value.
+        Domain constraints on valid values.
 
-        Uses internal self.std for perturbation magnitude.
-
-        Args:
-            mutation_rate: Probability of mutation occurring
+        Type depends on subclass:
+        - Dict[str, Any] for continuous types (min/max)
+        - Set[Any] for discrete types
         """
         pass
 
-    @abstractmethod
-    def crossbreed(
-            self,
-            other: "AbstractAllele",
+    @property
+    def can_mutate(self) -> bool:
+        """Whether this allele should participate in mutation."""
+        return self._can_mutate
+
+    @property
+    def can_crossbreed(self) -> bool:
+        """Whether this allele should participate in crossbreeding."""
+        return self._can_crossbreed
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Metadata dict (can contain alleles or raw values)."""
+        return self._metadata.copy()
+
+    def with_value(self, new_value: Any) -> "AbstractAllele":
+        """
+        Return a new allele with updated value.
+
+        Applies domain validation and clamping through constructor.
+
+        Args:
+            new_value: The new value
+
+        Returns:
+            New allele instance with updated value
+        """
+        return self.with_overrides(value=new_value)
+
+    def with_metadata(self, **updates: Any) -> "AbstractAllele":
+        """
+        Return a new allele with metadata entries added or updated.
+
+        Args:
+            **updates: Metadata entries to add or update
+
+        Returns:
+            New allele instance with updated metadata
+        """
+        new_metadata = self._metadata.copy()
+        new_metadata.update(updates)
+        return self.with_overrides(metadata=new_metadata)
+
+    def walk_tree(
+        self,
+        handler: Callable[[List["AbstractAllele"]], Optional[Any]],
+        include_can_mutate: bool = True,
+        include_can_crossbreed: bool = True,
+    ) -> Generator[Any, None, None]:
+        """
+        Walk this allele's tree and yield results.
+
+        Thin wrapper around walk_allele_trees for single-tree use.
+
+        Args:
+            handler: Function receiving list of flattened alleles
+            include_can_mutate: If False, skip nodes with can_mutate=False
+            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+
+        Yields:
+            Values returned by handler (if not None)
+        """
+        yield from walk_allele_trees(
+            [self],
+            handler,
+            include_can_mutate=include_can_mutate,
+            include_can_crossbreed=include_can_crossbreed,
+        )
+
+    def update_tree(
+        self,
+        handler: Callable[[List["AbstractAllele"]], Any],
+        include_can_mutate: bool = True,
+        include_can_crossbreed: bool = True,
     ) -> "AbstractAllele":
         """
-        Create offspring allele via crossbreeding.
+        Transform this allele's tree.
 
-        Returns a new allele with 50/50 chance to inherit properties
-        from self or other. Types must match.
+        Thin wrapper around synthesize_allele_trees for single-tree use.
 
         Args:
-            other: Another allele of the same type
+            handler: Function receiving list of flattened alleles and returning new value
+            include_can_mutate: If False, skip nodes with can_mutate=False
+            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
 
         Returns:
-            New allele instance (copy of self or other)
-
-        Raises:
-            TypeError: If other is not the same allele type
+            New tree with updated values
         """
-        pass
+        return synthesize_allele_trees(
+            [self],
+            handler,
+            include_can_mutate=include_can_mutate,
+            include_can_crossbreed=include_can_crossbreed,
+        )
 
-    def get_value(self) -> float:
-        """
-        Get the current value of this allele.
-
-        Returns:
-            Current hyperparameter value
-        """
-        return self.value
-
-    @abstractmethod
     def serialize(self) -> Dict[str, Any]:
         """
-        Serialize allele to dict.
+        Convert to dict, including recursive metadata serialization.
 
         Returns:
-            Dict containing all allele data
+            Dict with "type", subclass fields, and recursively serialized metadata
+        """
+        # Handle universal metadata recursion
+        serialized_metadata = {}
+        for key, val in self._metadata.items():
+            if isinstance(val, AbstractAllele):
+                serialized_metadata[key] = val.serialize()
+            else:
+                serialized_metadata[key] = val
+
+        # Get subclass-specific fields
+        subclass_data = self.serialize_subclass()
+
+        # Combine with type field and metadata
+        return {
+            "type": self.__class__.__name__,
+            **subclass_data,
+            "metadata": serialized_metadata,
+        }
+
+    @classmethod
+    def deserialize(cls, data: Dict[str, Any]) -> "AbstractAllele":
+        """
+        Reconstruct from dict, dispatching to appropriate subclass.
+
+        Handles type dispatch and recursive metadata deserialization.
+
+        Args:
+            data: Dict with "type" field identifying the subclass
+
+        Returns:
+            Reconstructed allele instance
+
+        Raises:
+            ValueError: If type field is missing or unknown
+        """
+        allele_type = data.get("type")
+        if allele_type is None:
+            raise ValueError("Missing 'type' field in serialized allele data")
+
+        allele_class = cls._registry.get(allele_type)
+        if allele_class is None:
+            raise ValueError(f"Unknown allele type: {allele_type}")
+
+        # Handle universal metadata recursion
+        deserialized_metadata = {}
+        for key, val in data.get("metadata", {}).items():
+            if isinstance(val, dict) and "type" in val:
+                # This is a serialized allele
+                deserialized_metadata[key] = AbstractAllele.deserialize(val)
+            else:
+                deserialized_metadata[key] = val
+
+        # Pass to subclass with metadata already handled
+        return allele_class.deserialize_subclass(data, deserialized_metadata)
+
+    @abstractmethod
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize subclass-specific fields.
+
+        Subclasses return dict with their fields (value, domain, can_mutate, etc.).
+        Do not include "type" or "metadata" - AbstractAllele handles those.
+
+        Returns:
+            Dict with subclass-specific fields
         """
         pass
 
     @classmethod
     @abstractmethod
-    def deserialize(
-            cls,
-            data: Dict[str, Any],
-    ) -> "AbstractAllele":
+    def deserialize_subclass(cls, data: Dict[str, Any], metadata: Dict[str, Any]) -> "AbstractAllele":
         """
-        Reconstruct allele from serialized data.
+        Deserialize subclass from data with pre-deserialized metadata.
 
         Args:
-            data: Serialized allele data
+            data: Dict with all serialized fields (including "type" and "metadata")
+            metadata: Pre-deserialized metadata dict (alleles already reconstructed)
 
         Returns:
             Reconstructed allele instance
         """
         pass
 
-
-class MetaControlAllele(AbstractAllele):
-    """
-    Special allele that holds mutation control parameters.
-
-    Its "value" is a dict containing:
-    - mutation_rate: Probability of mutations
-    - mutation_std: Std for mutating other allele stds
-    - min_clamp: Floor for allele stds
-    - max_clamp: Ceiling for allele stds
-
-    This allele type doesn't mutate in the typical sense - it holds
-    the parameters used to mutate other alleles.
-    """
-
-    def __init__(
-            self,
-            mutation_rate: float = 0.15,
-            mutation_std: float = 0.05,
-            min_clamp: float = 0.01,
-            max_clamp: float = 0.5,
-    ):
+    @abstractmethod
+    def with_overrides(self, **constructor_overrides: Any) -> "AbstractAllele":
         """
-        Initialize meta-control allele.
+        Construct a new allele with constructor argument overrides.
+
+        Subclasses implement this to handle their specific constructor signature.
+        All unspecified arguments should default to current state.
 
         Args:
-            mutation_rate: Probability of mutations (default 0.15)
-            mutation_std: Std for mutating allele stds (default 0.05)
-            min_clamp: Minimum allowed std (default 0.01)
-            max_clamp: Maximum allowed std (default 0.5)
+            **constructor_overrides: Constructor arguments to override
+                (e.g., value, domain, can_mutate, can_crossbreed, metadata)
 
-        Raises:
-            ValueError: If parameters are invalid
+        Returns:
+            New allele instance constructed with overridden arguments
         """
-        # Validate parameters
-        if not 0 <= mutation_rate <= 1:
-            raise ValueError(f"mutation_rate must be in [0, 1], got {mutation_rate}")
-        if mutation_std <= 0:
-            raise ValueError(f"mutation_std must be > 0, got {mutation_std}")
-        if min_clamp <= 0:
-            raise ValueError(f"min_clamp must be > 0, got {min_clamp}")
-        if max_clamp <= min_clamp:
-            raise ValueError(f"max_clamp must be > min_clamp, got max={max_clamp}, min={min_clamp}")
-
-        # Store as dict "value"
-        value_dict = {
-            "mutation_rate": mutation_rate,
-            "mutation_std": mutation_std,
-            "min_clamp": min_clamp,
-            "max_clamp": max_clamp,
-        }
-        # Meta-control doesn't have its own std, use 0.0 as placeholder
-        super().__init__(value_dict, std=0.0)
-
-    def mutate(
-            self,
-            mutation_rate: float,
-    ) -> None:
-        """Meta-control allele doesn't mutate."""
         pass
 
-    def mutate_std(
-            self,
-            mutation_rate: float,
-            mutation_std: float,
-            min_clamp: float,
-            max_clamp: float,
-    ) -> None:
-        """Meta-control allele's std doesn't mutate."""
-        pass
 
-    def crossbreed(
-            self,
-            other: "AbstractAllele",
-    ) -> "MetaControlAllele":
-        """Return copy of self or other with 50/50 probability."""
-        if not isinstance(other, MetaControlAllele):
-            raise TypeError(f"Cannot crossbreed MetaControlAllele with {type(other).__name__}")
-
-        # 50/50 coin flip
-        parent = self if random.random() < 0.5 else other
-        parent_value = parent.value
-
-        return MetaControlAllele(
-            mutation_rate=parent_value["mutation_rate"],
-            mutation_std=parent_value["mutation_std"],
-            min_clamp=parent_value["min_clamp"],
-            max_clamp=parent_value["max_clamp"],
-        )
-
-    def get_value(self) -> Dict[str, float]:
-        """Get meta-control parameters as dict."""
-        return self.value
-
-    def serialize(self) -> Dict[str, Any]:
-        """Serialize to dict."""
-        return {
-            "type": "meta_control",
-            "value": self.value,
-        }
-
-    @classmethod
-    def deserialize(
-            cls,
-            data: Dict[str, Any],
-    ) -> "MetaControlAllele":
-        """Reconstruct from dict."""
-        value = data["value"]
-        return cls(
-            mutation_rate=value["mutation_rate"],
-            mutation_std=value["mutation_std"],
-            min_clamp=value["min_clamp"],
-            max_clamp=value["max_clamp"],
-        )
+# Tree utility functions (to be implemented)
 
 
-class LogAllele(AbstractAllele):
-    """
-    Allele with log-space (multiplicative) mutations.
-
-    Mutation applies: new_value = value * exp(N(0, std))
-    Requires min bound > 0 (log-space requirement).
-    """
-
-    def __init__(
-            self,
-            value: float,
-            std: float,
-            min: float,
-            max: Optional[float] = None,
-    ):
-        """
-        Initialize log-space allele.
-
-        Args:
-            value: Starting value
-            std: Initial mutation standard deviation
-            min: Minimum bound (must be > 0)
-            max: Maximum bound (optional)
-
-        Raises:
-            ValueError: If parameters are invalid
-        """
-        # Validate parameters
-        if min <= 0:
-            raise ValueError(f"LogAllele requires min > 0, got {min}")
-        if value <= 0:
-            raise ValueError(f"LogAllele requires value > 0 for log-space, got {value}")
-        if value < min:
-            raise ValueError(f"LogAllele value {value} is below min bound {min}")
-        if max is not None and value > max:
-            raise ValueError(f"LogAllele value {value} is above max bound {max}")
-        if max is not None and max <= min:
-            raise ValueError(f"LogAllele max {max} must be > min {min}")
-        if std <= 0:
-            raise ValueError(f"LogAllele std must be > 0, got {std}")
-
-        super().__init__(value, std)
-        self.min = min
-        self.max = max
-
-    def mutate(
-            self,
-            mutation_rate: float,
-    ) -> None:
-        """Mutate value using log-space perturbation."""
-        if random.random() < mutation_rate:
-            perturbation = random.gauss(0, self.std)
-            new_value = self.value * math.exp(perturbation)
-
-            # Clamp to bounds
-            new_value = max(self.min, new_value)
-            if self.max is not None:
-                new_value = min(self.max, new_value)
-
-            self.value = new_value
-
-    def crossbreed(
-            self,
-            other: "AbstractAllele",
-    ) -> "LogAllele":
-        """Return copy of self or other with 50/50 probability."""
-        if not isinstance(other, LogAllele):
-            raise TypeError(f"Cannot crossbreed LogAllele with {type(other).__name__}")
-
-        # 50/50 coin flip
-        parent = self if random.random() < 0.5 else other
-
-        # Return a copy of the chosen parent
-        return LogAllele(
-            value=parent.value,
-            std=parent.std,
-            min=parent.min,
-            max=parent.max,
-        )
-
-    def serialize(self) -> Dict[str, Any]:
-        """Serialize to dict."""
-        return {
-            "type": "log",
-            "value": self.value,
-            "std": self.std,
-            "bounds": {
-                "min": self.min,
-                "max": self.max,
-            },
-        }
-
-    @classmethod
-    def deserialize(
-            cls,
-            data: Dict[str, Any],
-    ) -> "LogAllele":
-        """Reconstruct from dict."""
-        bounds = data["bounds"]
-        return cls(
-            value=data["value"],
-            std=data["std"],
-            min=bounds["min"],
-            max=bounds.get("max"),
-        )
+def walk_allele_trees(
+    alleles: List[AbstractAllele],
+    handler: Callable[[List[AbstractAllele]], Optional[Any]],
+    include_can_mutate: bool = True,
+    include_can_crossbreed: bool = True,
+) -> Generator[Any, None, None]:
+    """Walk multiple allele trees in parallel. Implementation pending."""
+    raise NotImplementedError("walk_allele_trees not yet implemented")
 
 
-class LinearAllele(AbstractAllele):
-    """
-    Allele with linear (additive) mutations.
-
-    Mutation applies: new_value = value + N(0, std)
-    Bounds are optional.
-    """
-
-    def __init__(
-            self,
-            value: float,
-            std: float,
-            min: Optional[float] = None,
-            max: Optional[float] = None,
-    ):
-        """
-        Initialize linear allele.
-
-        Args:
-            value: Starting value
-            std: Initial mutation standard deviation
-            min: Minimum bound (optional)
-            max: Maximum bound (optional)
-
-        Raises:
-            ValueError: If parameters are invalid
-        """
-        # Validate parameters
-        if std <= 0:
-            raise ValueError(f"LinearAllele std must be > 0, got {std}")
-        if min is not None and value < min:
-            raise ValueError(f"LinearAllele value {value} is below min bound {min}")
-        if max is not None and value > max:
-            raise ValueError(f"LinearAllele value {value} is above max bound {max}")
-        if min is not None and max is not None and max <= min:
-            raise ValueError(f"LinearAllele max {max} must be > min {min}")
-
-        super().__init__(value, std)
-        self.min = min
-        self.max = max
-
-    def mutate(
-            self,
-            mutation_rate: float,
-    ) -> None:
-        """Mutate value using linear perturbation."""
-        if random.random() < mutation_rate:
-            perturbation = random.gauss(0, self.std)
-            new_value = self.value + perturbation
-
-            # Clamp to bounds if specified
-            if self.min is not None:
-                new_value = max(self.min, new_value)
-            if self.max is not None:
-                new_value = min(self.max, new_value)
-
-            self.value = new_value
-
-    def crossbreed(
-            self,
-            other: "AbstractAllele",
-    ) -> "LinearAllele":
-        """Return copy of self or other with 50/50 probability."""
-        if not isinstance(other, LinearAllele):
-            raise TypeError(f"Cannot crossbreed LinearAllele with {type(other).__name__}")
-
-        # 50/50 coin flip
-        parent = self if random.random() < 0.5 else other
-
-        # Return a copy of the chosen parent
-        return LinearAllele(
-            value=parent.value,
-            std=parent.std,
-            min=parent.min,
-            max=parent.max,
-        )
-
-    def serialize(self) -> Dict[str, Any]:
-        """Serialize to dict."""
-        return {
-            "type": "linear",
-            "value": self.value,
-            "std": self.std,
-            "bounds": {
-                "min": self.min,
-                "max": self.max,
-            },
-        }
-
-    @classmethod
-    def deserialize(
-            cls,
-            data: Dict[str, Any],
-    ) -> "LinearAllele":
-        """Reconstruct from dict."""
-        bounds = data["bounds"]
-        return cls(
-            value=data["value"],
-            std=data["std"],
-            min=bounds.get("min"),
-            max=bounds.get("max"),
-        )
-
-
-class LinearIntegerAllele(AbstractAllele):
-    """
-    Allele for integer-valued hyperparameters with linear mutations.
-
-    Stores value as float internally, applies Gaussian perturbations,
-    then rounds to integer on get_value().
-
-    Enforces minimum std of 1.0 to ensure meaningful integer jumps.
-    """
-
-    def __init__(
-            self,
-            value: int,
-            std: float,
-            min: Optional[int] = None,
-            max: Optional[int] = None,
-    ):
-        """
-        Initialize integer allele.
-
-        Args:
-            value: Starting integer value
-            std: Initial mutation standard deviation (will be clamped >= 1.0)
-            min: Minimum bound (optional, integer)
-            max: Maximum bound (optional, integer)
-
-        Raises:
-            ValueError: If parameters are invalid
-        """
-        # Validate parameters
-        if std <= 0:
-            raise ValueError(f"LinearIntegerAllele std must be > 0, got {std}")
-        if min is not None and value < min:
-            raise ValueError(f"LinearIntegerAllele value {value} is below min bound {min}")
-        if max is not None and value > max:
-            raise ValueError(f"LinearIntegerAllele value {value} is above max bound {max}")
-        if min is not None and max is not None and max <= min:
-            raise ValueError(f"LinearIntegerAllele max {max} must be > min {min}")
-
-        # Ensure std is at least 1.0 for meaningful integer jumps
-        std = max(1.0, std)
-
-        # Store as float internally
-        super().__init__(float(value), std)
-        self.min = min
-        self.max = max
-
-    def mutate_std(
-            self,
-            mutation_rate: float,
-            mutation_std: float,
-            min_clamp: float,
-            max_clamp: float,
-    ) -> None:
-        """
-        Mutate std with custom minimum of 1.0.
-
-        Overrides meta-control's min_clamp to enforce std >= 1.0
-        for meaningful integer jumps.
-        """
-        if random.random() < mutation_rate:
-            perturbation = random.gauss(0, mutation_std)
-            new_std = self.std * math.exp(perturbation)
-            # Custom clamp: minimum 1.0, respect max_clamp
-            self.std = max(1.0, min(max_clamp, new_std))
-
-    def mutate(
-            self,
-            mutation_rate: float,
-    ) -> None:
-        """Mutate value using linear perturbation, then clamp to integer bounds."""
-        if random.random() < mutation_rate:
-            perturbation = random.gauss(0, self.std)
-            new_value = self.value + perturbation
-
-            # Clamp to bounds if specified
-            if self.min is not None:
-                new_value = max(float(self.min), new_value)
-            if self.max is not None:
-                new_value = min(float(self.max), new_value)
-
-            self.value = new_value
-
-    def crossbreed(
-            self,
-            other: "AbstractAllele",
-    ) -> "LinearIntegerAllele":
-        """Return copy of self or other with 50/50 probability."""
-        if not isinstance(other, LinearIntegerAllele):
-            raise TypeError(f"Cannot crossbreed LinearIntegerAllele with {type(other).__name__}")
-
-        # 50/50 coin flip
-        parent = self if random.random() < 0.5 else other
-
-        # Return a copy of the chosen parent (convert value back to int for constructor)
-        return LinearIntegerAllele(
-            value=round(parent.value),
-            std=parent.std,
-            min=parent.min,
-            max=parent.max,
-        )
-
-    def get_value(self) -> int:
-        """Get current value as rounded integer."""
-        return round(self.value)
-
-    def serialize(self) -> Dict[str, Any]:
-        """Serialize to dict."""
-        return {
-            "type": "linear_integer",
-            "value": self.value,  # Store float internally
-            "std": self.std,
-            "bounds": {
-                "min": self.min,
-                "max": self.max,
-            },
-        }
-
-    @classmethod
-    def deserialize(
-            cls,
-            data: Dict[str, Any],
-    ) -> "LinearIntegerAllele":
-        """Reconstruct from dict."""
-        bounds = data["bounds"]
-        # Constructor expects int, but data has float - round it
-        return cls(
-            value=round(data["value"]),
-            std=data["std"],
-            min=bounds.get("min"),
-            max=bounds.get("max"),
-        )
-
-
-# Registry for deserialization
-ALLELE_TYPES = {
-    "log": LogAllele,
-    "linear": LinearAllele,
-    "linear_integer": LinearIntegerAllele,
-    "meta_control": MetaControlAllele,
-}
-
-
-def deserialize_allele(
-        data: Dict[str, Any],
+def synthesize_allele_trees(
+    alleles: List[AbstractAllele],
+    handler: Callable[[List[AbstractAllele]], Any],
+    include_can_mutate: bool = True,
+    include_can_crossbreed: bool = True,
 ) -> AbstractAllele:
-    """
-    Deserialize an allele from dict data.
-
-    Args:
-        data: Serialized allele data with 'type' key
-
-    Returns:
-        Reconstructed allele instance
-
-    Raises:
-        ValueError: If type is unknown
-    """
-    allele_type = data.get("type")
-    if allele_type not in ALLELE_TYPES:
-        raise ValueError(f"Unknown allele type: {allele_type}")
-
-    allele_class = ALLELE_TYPES[allele_type]
-    return allele_class.deserialize(data)
+    """Synthesize a single result tree from multiple trees. Implementation pending."""
+    raise NotImplementedError("synthesize_allele_trees not yet implemented")

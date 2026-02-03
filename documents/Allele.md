@@ -13,7 +13,7 @@ Note concrete implementations should include type hints.
 Every allele has five fields:
 
 **`value: Any`** — the actual parameter value. Type depends on subclass.
-**`domain: Domain`** — constraints on valid values (min/max bounds or discrete choices). Exact details will follow.
+**`domain: Dict`** — constraints on valid values (min/max bounds or discrete choices). Exact details will follow.
 **`can_mutate: bool`** — signals whether this allele's value should participate in mutation. This is signaling only — the allele does not enforce it. Utilities and strategies should be setup to respect it
 **`can_crossbreed: bool`** — signals whether this allele's value should participate in crossbreeding. Signaling only, not enforced by the allele.
 
@@ -147,24 +147,24 @@ by directly passing the relevant metadata into the constructor
 
 ## Domain
 
-Domain defines valid values. Must match allele type. They go off when 
-the constructor is triggered. 
+Domain is a plain `dict` that defines valid values for an allele. The keys are interpreted based on allele type. Domain enforcement happens when the allele is constructed (and therefore also when `with_value(...)` constructs a new instance): values are clipped into the valid range when that is meaningful, and an exception is raised when the value cannot be made valid (for example, a log-space allele given a non-positive value).
 
 **Continuous (min/max):**
 ```python
-Domain(min=0.0, max=1.0)   # Bounded
-Domain(min=0.0, max=None)  # Unbounded above
+{"min": 0.0, "max": 1.0}    # Bounded
+{"min": 0.0, "max": None}   # Unbounded above
 ```
-Used by FloatAllele, IntAllele, LogFloatAllele. Note LogAllele requires min and requires it is greater than zero.
+
+Used by `FloatAllele`, `IntAllele`, `LogFloatAllele`. Note `LogFloatAllele` requires `"min"` and requires it is greater than zero.
 
 **Discrete (set):**
-```python
-Domain(choices={"adam", "sgd"})
-Domain(choices={True, False})
-```
-Used by StringAllele, BoolAllele.
 
-**Type matching:** Continuous domains for numeric alleles, discrete for string/bool. Domain validation and clamping happens in `__init__`.
+```%python
+"adam", "sgd"} # String domains;
+{True, False} # Bool domain
+```
+
+Used by `StringAllele`, `BoolAllele`.
 
 ---
 
@@ -202,10 +202,10 @@ class GaussianStd(FloatAllele):
     def __init__(self, 
                  base_std: float,
                  can_change=True, **kwargs):
-        super().__init__(value, 
+        super().__init__(base_std, 
                          can_crossbreed=can_change,
                          can_mutate=can_change,
-                         domain={min=0.1*base_std, max=5.0*base_std},
+                         domain={"min" :0.1*base_std, "max" : 5.0*base_std},
                          **kwargs)
         
 
@@ -213,8 +213,8 @@ class GaussianMutationChance(FloatAllele):
     def __init__(self, value, **kwargs):
         super().__init__(value,
                          can_mutate = False,
-                         can_change=False,
-                         domain={min=0.1, max=0.9}, 
+                         can_crossbreed=False,
+                         domain={"min" : 0.1, "max" : 0.9}, 
                         **kwargs)
 ```
 
@@ -223,13 +223,12 @@ Then constructs alleles using these subclasses:
 ```python
 learning_rate_allele = LogFloatAllele(
     value=0.01,
-    domain={min=1e-6, max=1e-2},
-
+    domain={"min" : 1e-6, "max" : 1e-2},
 ).with_metadata(
     mutation_chance=GaussianMutationChance(0.15),
     std=GaussianStd(0.1, can_change=True).with_metadata(
-        mutation_chance=0.05  # Raw value: constant
-        std = 0.1 # Raw value; knows how to mutate it, but no deeper metamutation.
+        mutation_chance=0.05,  # Raw value: constant
+        std=0.1 # Raw value; knows how to mutate it, but no deeper metamutation.
     )
 )
 ```
@@ -239,15 +238,16 @@ Or alternatively
 ```python
 
 
-lr_std = GaussianSTD(0.1, can_change=True,
-                     metadata = {mutation_chance : 0.1, std=0.1}
+lr_std = GaussianStd(0.1, 
+                     can_change=True,
+                     metadata = {"mutation_chance" : 0.1, "std" : 0.1}
 )
 lr_mutation_rate = GaussianMutationChance(0.25)
 
 learning_rate_allele = LogFloatAllele(
     value=0.01,
-    domain={min=1e-6, max=1e-2},
-    metadata ={"mutation_chance" : lr_mutation_rate, "std" lr_std}
+    domain={"min" : 1e-6, "max" : 1e-2},
+    metadata ={"mutation_chance" : lr_mutation_rate, "std" : lr_std}
 )
 
 

@@ -156,6 +156,7 @@ class AbstractAllele(ABC):
         handler: Callable[[List["AbstractAllele"]], Optional[Any]],
         include_can_mutate: bool = True,
         include_can_crossbreed: bool = True,
+        _walker: Optional[Callable] = None,
     ) -> Generator[Any, None, None]:
         """
         Walk this allele's tree and yield results.
@@ -170,7 +171,8 @@ class AbstractAllele(ABC):
         Yields:
             Values returned by handler (if not None)
         """
-        yield from walk_allele_trees(
+        walker = _walker if _walker is not None else walk_allele_trees
+        yield from walker(
             [self],
             handler,
             include_can_mutate=include_can_mutate,
@@ -182,6 +184,7 @@ class AbstractAllele(ABC):
         handler: Callable[[List["AbstractAllele"]], Any],
         include_can_mutate: bool = True,
         include_can_crossbreed: bool = True,
+        _updater: Optional[Callable] = None,
     ) -> "AbstractAllele":
         """
         Transform this allele's tree.
@@ -196,7 +199,8 @@ class AbstractAllele(ABC):
         Returns:
             New tree with updated values
         """
-        return synthesize_allele_trees(
+        updater = _updater if _updater is not None else synthesize_allele_trees
+        return updater(
             [self],
             handler,
             include_can_mutate=include_can_mutate,

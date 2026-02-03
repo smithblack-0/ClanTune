@@ -6,6 +6,7 @@ without coupling to implementation details.
 """
 
 import pytest
+from unittest.mock import Mock
 from src.clan_tune.genetics.alleles import AbstractAllele
 
 
@@ -405,16 +406,105 @@ class TestAbstractAlleleSerializationRoundTrip:
 
 
 class TestAbstractAlleleTreeWalking:
-    """Test suite for tree walking stubs."""
+    """Test suite for tree walking wrapper contract."""
 
-    def test_walk_tree_raises_not_implemented(self):
-        """walk_tree raises NotImplementedError (stub implementation)."""
+    def test_walk_tree_wraps_self_in_list(self):
+        """walk_tree wraps self in list when calling walker function."""
         allele = SimpleAllele(42)
-        with pytest.raises(NotImplementedError, match="walk_allele_trees not yet implemented"):
-            list(allele.walk_tree(lambda nodes: None))
+        mock_walker = Mock(return_value=iter([]))
+        handler = lambda nodes: None
 
-    def test_update_tree_raises_not_implemented(self):
-        """update_tree raises NotImplementedError (stub implementation)."""
+        list(allele.walk_tree(handler, _walker=mock_walker))
+
+        # Verify walker called with self wrapped in list
+        call_args = mock_walker.call_args
+        assert call_args[0][0] == [allele]
+
+    def test_walk_tree_passes_handler_to_walker(self):
+        """walk_tree passes handler function to walker."""
         allele = SimpleAllele(42)
-        with pytest.raises(NotImplementedError, match="synthesize_allele_trees not yet implemented"):
-            allele.update_tree(lambda nodes: nodes[0].value)
+        mock_walker = Mock(return_value=iter([]))
+        handler = lambda nodes: "test"
+
+        list(allele.walk_tree(handler, _walker=mock_walker))
+
+        # Verify handler passed through
+        call_args = mock_walker.call_args
+        assert call_args[0][1] is handler
+
+    def test_walk_tree_passes_flags_to_walker(self):
+        """walk_tree passes include flags to walker."""
+        allele = SimpleAllele(42)
+        mock_walker = Mock(return_value=iter([]))
+
+        list(allele.walk_tree(
+            lambda nodes: None,
+            include_can_mutate=False,
+            include_can_crossbreed=False,
+            _walker=mock_walker
+        ))
+
+        # Verify flags passed through
+        call_args = mock_walker.call_args
+        assert call_args[1]["include_can_mutate"] is False
+        assert call_args[1]["include_can_crossbreed"] is False
+
+    def test_walk_tree_yields_walker_results(self):
+        """walk_tree yields results from walker function."""
+        allele = SimpleAllele(42)
+        mock_walker = Mock(return_value=iter([1, 2, 3]))
+
+        results = list(allele.walk_tree(lambda nodes: None, _walker=mock_walker))
+
+        assert results == [1, 2, 3]
+
+    def test_update_tree_wraps_self_in_list(self):
+        """update_tree wraps self in list when calling updater function."""
+        allele = SimpleAllele(42)
+        mock_updater = Mock(return_value=SimpleAllele(100))
+        handler = lambda nodes: 100
+
+        allele.update_tree(handler, _updater=mock_updater)
+
+        # Verify updater called with self wrapped in list
+        call_args = mock_updater.call_args
+        assert call_args[0][0] == [allele]
+
+    def test_update_tree_passes_handler_to_updater(self):
+        """update_tree passes handler function to updater."""
+        allele = SimpleAllele(42)
+        mock_updater = Mock(return_value=SimpleAllele(100))
+        handler = lambda nodes: 100
+
+        allele.update_tree(handler, _updater=mock_updater)
+
+        # Verify handler passed through
+        call_args = mock_updater.call_args
+        assert call_args[0][1] is handler
+
+    def test_update_tree_passes_flags_to_updater(self):
+        """update_tree passes include flags to updater."""
+        allele = SimpleAllele(42)
+        mock_updater = Mock(return_value=SimpleAllele(100))
+
+        allele.update_tree(
+            lambda nodes: 100,
+            include_can_mutate=False,
+            include_can_crossbreed=False,
+            _updater=mock_updater
+        )
+
+        # Verify flags passed through
+        call_args = mock_updater.call_args
+        assert call_args[1]["include_can_mutate"] is False
+        assert call_args[1]["include_can_crossbreed"] is False
+
+    def test_update_tree_returns_updater_result(self):
+        """update_tree returns result from updater function."""
+        allele = SimpleAllele(42)
+        new_allele = SimpleAllele(100)
+        mock_updater = Mock(return_value=new_allele)
+
+        result = allele.update_tree(lambda nodes: 100, _updater=mock_updater)
+
+        assert result is new_allele

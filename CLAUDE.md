@@ -217,14 +217,21 @@ Black box testing is a development strategy this project uses to force good arch
 
 Black box testing enforces constraints:
 - You **must** test all public interfaces, methods, and observable behavior thoroughly
-- You **must not** access private fields or methods in tests (exception: static private methods, which are stateless)
+- You **must not** access or manipulate private fields in tests
+- You **must not** test private methods (test the public methods that use them instead)
 - You **must** minimize exposure of internal state to reduce coupling
 - You **must** test responsibilities where they actually belong
 
 These constraints inevitably create conflicts:
 
 **"I need to test this complex private method, but I can't access it."**
-→ Design problem: Extract the algorithm into a testable component. The private method should be lightweight orchestration only.
+→ Design problem: Extract the algorithm into a testable component. The private method should be lightweight orchestration only. Test the public method that uses it instead.
+
+**"I need to verify this private field has the right value."**
+→ You have three options:
+1. Make it public (if it's a real responsibility others need)
+2. Make it injectable via constructor (if it's a dependency)
+3. **Test the behavior it produces, not the value itself** (almost always the right choice)
 
 **"I need to set internal state to test an edge case, but the field is private."**
 → Design problem: The state should be injectable via constructor. If you need to manipulate it for testing, other code will need to manipulate it too.
@@ -271,20 +278,32 @@ Bad architecture cannot pass black box testing on all axes. The friction is doin
 
 ## Public Features (Things That Must Be Tested)
 
+**Definition of Public:**
+Public means "accessible to users of this class", whether documented or not. If code outside the class can call it or access it, it's public and must be tested. Documentation status is separate from public/private status.
+
 **Public methods and functions:**
 - Any method or function callable from outside the class
 - Include all documented parameters, return values, and side effects
 - Include error conditions (what exceptions are raised when?)
+- Test via the public interface, not by inspecting internals
 
 **Public properties and fields:**
 - Any field accessible via `obj.field` syntax
 - Properties with getters (even if backed by private storage)
-- Documented attributes
+- Any attribute users can access
 
 **Observable behavior:**
 - State changes visible through public interface
 - Side effects on injected dependencies (e.g., calls to optimizer.param_groups)
 - Behavior triggered by public methods
+- Performance characteristics that matter (e.g., caching makes second call faster)
+
+**Behavior enabled by internal utilities:**
+- **Critical**: You MUST test what caches, registries, lookup tables enable, just test it via observable behavior
+- Example: Don't test "is Type in registry?", DO test "does deserialize() return correct type?"
+- Example: Don't test "cache hit count", DO test "second call returns same result"
+- Example: Don't test "lookup table contains X", DO test "method using lookup succeeds on valid input"
+- **The point is not to skip these tests, but to test them the right way**
 
 **Documented contracts:**
 - Immutability (if documented, verify original unchanged after operations)
@@ -302,12 +321,15 @@ Bad architecture cannot pass black box testing on all axes. The friction is doin
 
 **Private fields:**
 - Any field starting with underscore (`obj._field`)
-- Even if "it's just for one assertion"
+- Cannot read them, cannot write them, cannot assert on them
 - Exception: Reading via public properties is fine (that's the public interface)
+- **Test the behavior the field produces, not the field value itself**
 
 **Private methods:**
 - Any method starting with underscore (`obj._method()`)
-- Exception: Static private methods (no state) can be imported and tested as pure functions if needed
+- Do not test them directly - test the public methods that use them instead
+- Exception: Static private methods (no state) can be tested as pure functions if needed
+- If a private method is too complex to validate through public methods, extract it to a testable component
 
 **Internal implementation details:**
 - Data structure choices (dict vs list, registry vs dispatch table)
@@ -315,14 +337,16 @@ Bad architecture cannot pass black box testing on all axes. The friction is doin
 - Internal state management (how fields are stored)
 - Serialization schema (field names, structure, format)
 
-**Internal mechanisms:**
-- Caches, registries, lookup tables
-- Memoization state
-- Internal optimization structures
+**Internal mechanisms (but still test what they enable!):**
+- Caches, registries, lookup tables - don't inspect them, test what they enable
+- Memoization state - don't check hit counts, test that results are correct
+- Internal optimization structures - don't verify structure, test behavior
 
-**Test the behavior these enable, not their presence:**
-- Instead of "is X in cache?", test "does operation Y perform correctly?"
-- Instead of "is Type in registry?", test "does deserialize() return correct type?"
+**How to test internal mechanisms via behavior:**
+- Caching: Test that operations return correct results, not that cache contains entries
+- Registries: Test that dispatch works correctly, not that registry has entries
+- Lookup tables: Test that lookups succeed/fail correctly, not that table contains keys
+- **You are not excused from testing these - you must test them via observable behavior**
 
 ---
 
@@ -336,28 +360,35 @@ We want to satisfy the SPIRIT of black box testing (forcing good design, reducin
 
 **The Pattern:**
 
-If you must violate black box rules (e.g., access private state for setup), isolate the violation in a single stateless helper function at the top of the test file:
+If you must violate black box rules (e.g., read private state for verification), isolate the violation in a single stateless helper function at the top of the test file:
 
 ```python
 # Encapsulation of private state access for testing
 # VIOLATION: Accesses _internal_field directly
 # JUSTIFICATION: [Explain why this serves black box philosophy better than alternatives]
-def _test_helper_set_internal_state(obj, field_name, value):
+def _test_helper_get_internal_field(obj, field_name):
     """
-    Test helper to set internal state that cannot be set via public API.
+    Test helper to read internal state for verification.
 
+    STATELESS: Takes input, returns output, no side effects.
     This is the ONLY place in this test file that accesses private state.
     If you need to refactor internals, change this ONE function.
     """
-    setattr(obj, f"_{field_name}", value)
+    return getattr(obj, f"_{field_name}")
 ```
 
 **Requirements:**
 - ONE function per type of violation (don't scatter violations throughout)
 - Place at TOP of test file (make it obvious)
 - Clear docstring explaining the violation and justification
-- Stateless (no hidden dependencies)
+- **MUST be stateless** (no side effects, no state manipulation)
+- **Stateful test hooks are FORBIDDEN** (manipulating private fields defeats the forcing function)
 - Team approval required
+
+**Stateless vs Stateful:**
+- ✅ Stateless: Reading a private field to verify behavior (no mutation)
+- ❌ Stateful: Setting a private field to bypass public API (defeats dependency injection forcing)
+- The difference: Stateless hooks don't let you avoid good design, stateful ones do
 
 **When to Consider This:**
 - Refactoring would violate other design principles more severely

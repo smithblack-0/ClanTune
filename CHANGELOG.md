@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - AbstractAllele base class with registry-based serialization dispatch
-- Comprehensive test suite for AbstractAllele (46 black-box tests)
+- Comprehensive test suite for AbstractAllele (38 black-box tests)
 - Tree walking stubs (walk_tree, update_tree) with injection parameters for testability
+- Organized test directory structure (tests/genetics/alleles/)
 
 ### Fixed
-- Moved tests to tests/genetics/ to mirror source structure
-- Replaced stub verification tests with contract tests using mock injection
+- Removed black-box testing violations (schema coupling in serialization tests)
+- Test fixtures now use public properties instead of private fields
+- Replaced registry inspection tests with behavior-based round-trip tests
+- Serialization tests validate contracts via round-trip preservation, not schema structure
 
 ### Changed
 - Updated CLAUDE.md with session bootup checklist (documentation check, release check with analysis and reasoning)

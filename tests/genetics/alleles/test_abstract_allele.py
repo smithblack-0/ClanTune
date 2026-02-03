@@ -1,8 +1,8 @@
 """
 Black-box tests for AbstractAllele base class.
 
-Tests use minimal concrete implementations to verify AbstractAllele behavior
-without coupling to implementation details.
+Tests validate public API contracts without coupling to implementation details.
+Tests use minimal concrete implementations to verify AbstractAllele behavior.
 """
 
 import pytest
@@ -31,19 +31,19 @@ class SimpleAllele(AbstractAllele):
 
     def with_overrides(self, **constructor_overrides):
         return SimpleAllele(
-            value=constructor_overrides.get("value", self._value),
+            value=constructor_overrides.get("value", self.value),
             domain=constructor_overrides.get("domain", self._domain),
-            can_mutate=constructor_overrides.get("can_mutate", self._can_mutate),
-            can_crossbreed=constructor_overrides.get("can_crossbreed", self._can_crossbreed),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
             metadata=constructor_overrides.get("metadata", self._metadata),
         )
 
     def serialize_subclass(self):
         return {
-            "value": self._value,
+            "value": self.value,
             "domain": self.domain,
-            "can_mutate": self._can_mutate,
-            "can_crossbreed": self._can_crossbreed,
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
         }
 
     @classmethod
@@ -55,38 +55,6 @@ class SimpleAllele(AbstractAllele):
             can_crossbreed=data.get("can_crossbreed", True),
             metadata=metadata,
         )
-
-
-class TestAbstractAlleleRegistry:
-    """Test suite for subclass registration via __init_subclass__."""
-
-    def test_subclass_auto_registers_in_registry(self):
-        """Subclass is automatically registered by name in AbstractAllele._registry."""
-        assert "SimpleAllele" in AbstractAllele._registry
-        assert AbstractAllele._registry["SimpleAllele"] is SimpleAllele
-
-    def test_multiple_subclasses_all_registered(self):
-        """Multiple subclasses are all registered independently."""
-
-        class AnotherAllele(AbstractAllele):
-            @property
-            def domain(self):
-                return {}
-
-            def with_overrides(self, **kwargs):
-                pass
-
-            def serialize_subclass(self):
-                pass
-
-            @classmethod
-            def deserialize_subclass(cls, data, metadata):
-                pass
-
-        assert "AnotherAllele" in AbstractAllele._registry
-        assert AbstractAllele._registry["AnotherAllele"] is AnotherAllele
-        # Original still registered
-        assert "SimpleAllele" in AbstractAllele._registry
 
 
 class TestAbstractAlleleConstruction:
@@ -220,153 +188,8 @@ class TestAbstractAlleleWithMetadata:
         assert new_allele.metadata["key2"] == "value2"
 
 
-class TestAbstractAlleleSerialization:
-    """Test suite for serialization."""
-
-    def test_serialize_includes_type_field(self):
-        """serialize() includes 'type' field with class name."""
-        allele = SimpleAllele(42)
-        serialized = allele.serialize()
-        assert serialized["type"] == "SimpleAllele"
-
-    def test_serialize_includes_subclass_data(self):
-        """serialize() includes data from serialize_subclass()."""
-        allele = SimpleAllele(42, domain={"min": 0, "max": 100})
-        serialized = allele.serialize()
-        assert serialized["value"] == 42
-        assert serialized["domain"] == {"min": 0, "max": 100}
-
-    def test_serialize_includes_empty_metadata(self):
-        """serialize() includes metadata field even when empty."""
-        allele = SimpleAllele(42)
-        serialized = allele.serialize()
-        assert "metadata" in serialized
-        assert serialized["metadata"] == {}
-
-    def test_serialize_includes_raw_metadata_values(self):
-        """serialize() includes raw metadata values."""
-        allele = SimpleAllele(42, metadata={"key": "value", "num": 123})
-        serialized = allele.serialize()
-        assert serialized["metadata"]["key"] == "value"
-        assert serialized["metadata"]["num"] == 123
-
-    def test_serialize_recursively_serializes_metadata_alleles(self):
-        """serialize() recursively serializes alleles in metadata."""
-        nested_allele = SimpleAllele(100)
-        parent_allele = SimpleAllele(42, metadata={"nested": nested_allele})
-        serialized = parent_allele.serialize()
-
-        # Nested allele should be serialized
-        assert isinstance(serialized["metadata"]["nested"], dict)
-        assert serialized["metadata"]["nested"]["type"] == "SimpleAllele"
-        assert serialized["metadata"]["nested"]["value"] == 100
-
-    def test_serialize_handles_deeply_nested_alleles(self):
-        """serialize() handles multiple levels of nested alleles."""
-        level3 = SimpleAllele(3)
-        level2 = SimpleAllele(2, metadata={"child": level3})
-        level1 = SimpleAllele(1, metadata={"child": level2})
-
-        serialized = level1.serialize()
-        assert serialized["value"] == 1
-        assert serialized["metadata"]["child"]["value"] == 2
-        assert serialized["metadata"]["child"]["metadata"]["child"]["value"] == 3
-
-
-class TestAbstractAlleleDeserialization:
-    """Test suite for deserialization."""
-
-    def test_deserialize_dispatches_to_correct_subclass(self):
-        """deserialize() dispatches to the subclass specified by 'type' field."""
-        data = {
-            "type": "SimpleAllele",
-            "value": 42,
-            "domain": {},
-            "can_mutate": True,
-            "can_crossbreed": True,
-            "metadata": {},
-        }
-        allele = AbstractAllele.deserialize(data)
-        assert isinstance(allele, SimpleAllele)
-        assert allele.value == 42
-
-    def test_deserialize_raises_on_missing_type_field(self):
-        """deserialize() raises ValueError if 'type' field is missing."""
-        data = {"value": 42}
-        with pytest.raises(ValueError, match="Missing 'type' field"):
-            AbstractAllele.deserialize(data)
-
-    def test_deserialize_raises_on_unknown_type(self):
-        """deserialize() raises ValueError for unknown type."""
-        data = {"type": "NonexistentAllele", "value": 42}
-        with pytest.raises(ValueError, match="Unknown allele type"):
-            AbstractAllele.deserialize(data)
-
-    def test_deserialize_reconstructs_raw_metadata(self):
-        """deserialize() preserves raw metadata values."""
-        data = {
-            "type": "SimpleAllele",
-            "value": 42,
-            "domain": {},
-            "metadata": {"key": "value", "num": 123},
-        }
-        allele = AbstractAllele.deserialize(data)
-        assert allele.metadata["key"] == "value"
-        assert allele.metadata["num"] == 123
-
-    def test_deserialize_recursively_deserializes_metadata_alleles(self):
-        """deserialize() recursively reconstructs alleles in metadata."""
-        data = {
-            "type": "SimpleAllele",
-            "value": 42,
-            "domain": {},
-            "metadata": {
-                "nested": {
-                    "type": "SimpleAllele",
-                    "value": 100,
-                    "domain": {},
-                    "metadata": {},
-                }
-            },
-        }
-        allele = AbstractAllele.deserialize(data)
-        nested = allele.metadata["nested"]
-        assert isinstance(nested, SimpleAllele)
-        assert nested.value == 100
-
-    def test_deserialize_handles_deeply_nested_alleles(self):
-        """deserialize() handles multiple levels of nested alleles."""
-        data = {
-            "type": "SimpleAllele",
-            "value": 1,
-            "domain": {},
-            "metadata": {
-                "child": {
-                    "type": "SimpleAllele",
-                    "value": 2,
-                    "domain": {},
-                    "metadata": {
-                        "child": {
-                            "type": "SimpleAllele",
-                            "value": 3,
-                            "domain": {},
-                            "metadata": {},
-                        }
-                    },
-                }
-            },
-        }
-        level1 = AbstractAllele.deserialize(data)
-        level2 = level1.metadata["child"]
-        level3 = level2.metadata["child"]
-
-        assert level1.value == 1
-        assert level2.value == 2
-        assert level3.value == 3
-
-
 class TestAbstractAlleleSerializationRoundTrip:
-    """Test suite for serialization round-trip."""
+    """Test suite for serialization round-trip behavior."""
 
     def test_round_trip_preserves_value(self):
         """Serialize then deserialize preserves value."""
@@ -374,6 +197,13 @@ class TestAbstractAlleleSerializationRoundTrip:
         serialized = original.serialize()
         restored = AbstractAllele.deserialize(serialized)
         assert restored.value == 42
+
+    def test_round_trip_preserves_domain(self):
+        """Serialize then deserialize preserves domain."""
+        original = SimpleAllele(42, domain={"min": 0, "max": 100})
+        serialized = original.serialize()
+        restored = AbstractAllele.deserialize(serialized)
+        assert restored.domain == {"min": 0, "max": 100}
 
     def test_round_trip_preserves_flags(self):
         """Serialize then deserialize preserves flags."""
@@ -403,6 +233,67 @@ class TestAbstractAlleleSerializationRoundTrip:
         assert isinstance(restored_nested, SimpleAllele)
         assert restored_nested.value == 100
         assert restored_nested.can_mutate is False
+
+    def test_round_trip_preserves_deeply_nested_alleles(self):
+        """Serialize then deserialize preserves deeply nested allele trees."""
+        level3 = SimpleAllele(3, can_mutate=False)
+        level2 = SimpleAllele(2, metadata={"child": level3}, can_crossbreed=False)
+        level1 = SimpleAllele(1, metadata={"child": level2})
+
+        serialized = level1.serialize()
+        restored = AbstractAllele.deserialize(serialized)
+
+        assert restored.value == 1
+        assert restored.can_mutate is True
+
+        level2_restored = restored.metadata["child"]
+        assert isinstance(level2_restored, SimpleAllele)
+        assert level2_restored.value == 2
+        assert level2_restored.can_crossbreed is False
+
+        level3_restored = level2_restored.metadata["child"]
+        assert isinstance(level3_restored, SimpleAllele)
+        assert level3_restored.value == 3
+        assert level3_restored.can_mutate is False
+
+    def test_round_trip_reconstructs_correct_subclass_type(self):
+        """Serialize then deserialize reconstructs the correct concrete type."""
+        original = SimpleAllele(42, domain={"min": 0, "max": 100})
+        serialized = original.serialize()
+        restored = AbstractAllele.deserialize(serialized)
+        assert type(restored) is type(original)
+        assert isinstance(restored, SimpleAllele)
+
+    def test_serialize_returns_dict(self):
+        """Serialize returns a dict suitable for deserialization."""
+        allele = SimpleAllele(42, metadata={"nested": SimpleAllele(100)})
+        serialized = allele.serialize()
+        assert isinstance(serialized, dict)
+        # Round-trip validates it's in correct format
+        restored = AbstractAllele.deserialize(serialized)
+        assert restored.value == 42
+
+
+class TestAbstractAlleleDeserializationErrors:
+    """Test suite for deserialization error conditions."""
+
+    def test_deserialize_raises_on_missing_type_field(self):
+        """Deserialize raises ValueError when 'type' field is missing."""
+        data = {"value": 42}
+        with pytest.raises(ValueError) as exc_info:
+            AbstractAllele.deserialize(data)
+        # Error message should mention the problem
+        assert "type" in str(exc_info.value).lower()
+        assert "missing" in str(exc_info.value).lower()
+
+    def test_deserialize_raises_on_unknown_type(self):
+        """Deserialize raises ValueError for unknown allele type."""
+        data = {"type": "NonexistentAllele", "value": 42}
+        with pytest.raises(ValueError) as exc_info:
+            AbstractAllele.deserialize(data)
+        # Error message should mention the problem
+        assert "type" in str(exc_info.value).lower()
+        assert "unknown" in str(exc_info.value).lower()
 
 
 class TestAbstractAlleleTreeWalking:

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- AbstractAllele base class with registry-based serialization dispatch
+- Comprehensive test suite for AbstractAllele (40 black-box tests)
+- Tree walking stubs (walk_tree, update_tree) for future implementation
+
 ### Changed
 - Updated CLAUDE.md with session bootup checklist (documentation check, release check with analysis and reasoning)
 - Updated CLAUDE.md with versioning workflow (Unreleased pattern, semantic versioning rules)

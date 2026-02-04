@@ -12,11 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite for AbstractAllele (38 black-box tests)
 - Tree walking stubs (walk_tree, update_tree) with injection parameters for testability
 - Organized test directory structure (tests/genetics/alleles/)
-- FloatAllele concrete type with linear semantics, min/max clamping, and type-narrowed value property
-- IntAllele concrete type with float backing (raw_value property), rounding and clamping
-- LogFloatAllele concrete type with log-space semantics, min > 0 validation
-- BoolAllele concrete type with discrete set domain for boolean flags
-- StringAllele concrete type with discrete set domain for string choices
+- Five concrete allele types:
+  - FloatAllele: linear float with min/max clamping, type-narrowed value property
+  - IntAllele: float-backed integer with Union[int, float] API, exposes rounded int via value property and underlying float via raw_value property
+  - LogFloatAllele: log-space float with min > 0 validation and clamping
+  - BoolAllele: boolean flags with hardcoded {True, False} domain
+  - StringAllele: discrete string choices with required domain set
 
 ### Fixed
 - Removed black-box testing violations (schema coupling in serialization tests)

@@ -1,0 +1,471 @@
+"""
+Black-box tests for allele tree walking utilities.
+
+Tests validate tree walking and synthesis behavior through observable contracts
+without coupling to implementation details.
+"""
+
+import pytest
+from src.clan_tune.genetics.alleles import (
+    AbstractAllele,
+    FloatAllele,
+    IntAllele,
+    walk_allele_trees,
+    synthesize_allele_trees,
+)
+
+
+class TestWalkAlleleTreesBasics:
+    """Test suite for walk_allele_trees basic behavior."""
+
+    def test_walks_single_leaf_node(self):
+        """Handler called once for single leaf node."""
+        allele = FloatAllele(5.0)
+        results = []
+
+        def handler(nodes):
+            results.append(nodes[0].value)
+            return nodes[0].value
+
+        collected = list(walk_allele_trees([allele], handler))
+
+        assert results == [5.0]
+        assert collected == [5.0]
+
+    def test_walks_tree_children_first(self):
+        """Children processed before parent (children-first order)."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"child": child})
+
+        order = []
+
+        def handler(nodes):
+            order.append(nodes[0].value)
+            return nodes[0].value
+
+        list(walk_allele_trees([parent], handler))
+
+        assert order == [10.0, 5.0]  # Child first, then parent
+
+    def test_walks_multiple_metadata_children(self):
+        """All metadata children are walked before parent."""
+        child1 = FloatAllele(1.0)
+        child2 = FloatAllele(2.0)
+        parent = FloatAllele(5.0, metadata={"a": child1, "b": child2})
+
+        values = []
+
+        def handler(nodes):
+            values.append(nodes[0].value)
+            return nodes[0].value
+
+        list(walk_allele_trees([parent], handler))
+
+        # Children walked first (sorted keys: "a", "b"), then parent
+        assert values == [1.0, 2.0, 5.0]
+
+    def test_walks_deeply_nested_tree(self):
+        """Walks deeply nested trees correctly."""
+        level3 = FloatAllele(3.0)
+        level2 = FloatAllele(2.0, metadata={"child": level3})
+        level1 = FloatAllele(1.0, metadata={"child": level2})
+
+        values = []
+
+        def handler(nodes):
+            values.append(nodes[0].value)
+            return nodes[0].value
+
+        list(walk_allele_trees([level1], handler))
+
+        # Deepest first, then up
+        assert values == [3.0, 2.0, 1.0]
+
+
+class TestWalkAlleleTreesMetadataFlattening:
+    """Test suite for metadata flattening behavior."""
+
+    def test_flattens_metadata_alleles_to_values(self):
+        """Metadata alleles replaced with their values before handler call."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"std": child})
+
+        def handler(nodes):
+            # When handler sees parent, metadata should be flattened
+            if nodes[0].value == 5.0:
+                assert nodes[0].metadata["std"] == 10.0
+                assert not isinstance(nodes[0].metadata["std"], AbstractAllele)
+            return None
+
+        list(walk_allele_trees([parent], handler))
+
+    def test_preserves_raw_metadata_values(self):
+        """Raw (non-allele) metadata values are preserved unchanged."""
+        parent = FloatAllele(5.0, metadata={"raw": 42, "string": "test"})
+
+        def handler(nodes):
+            assert nodes[0].metadata["raw"] == 42
+            assert nodes[0].metadata["string"] == "test"
+            return None
+
+        list(walk_allele_trees([parent], handler))
+
+    def test_flattens_mixed_metadata(self):
+        """Correctly handles metadata with both alleles and raw values."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"allele": child, "raw": 99})
+
+        def handler(nodes):
+            if nodes[0].value == 5.0:
+                assert nodes[0].metadata["allele"] == 10.0
+                assert nodes[0].metadata["raw"] == 99
+            return None
+
+        list(walk_allele_trees([parent], handler))
+
+
+class TestWalkAlleleTreesFiltering:
+    """Test suite for can_mutate and can_crossbreed filtering."""
+
+    def test_skips_node_when_can_mutate_false(self):
+        """Nodes with can_mutate=False are skipped when include_can_mutate=False."""
+        allele = FloatAllele(5.0, can_mutate=False)
+        visited = []
+
+        def handler(nodes):
+            visited.append(nodes[0].value)
+            return None
+
+        list(walk_allele_trees([allele], handler, include_can_mutate=False))
+
+        assert visited == []
+
+    def test_includes_node_when_can_mutate_true(self):
+        """Nodes with can_mutate=True are included when include_can_mutate=False."""
+        allele = FloatAllele(5.0, can_mutate=True)
+        visited = []
+
+        def handler(nodes):
+            visited.append(nodes[0].value)
+            return None
+
+        list(walk_allele_trees([allele], handler, include_can_mutate=False))
+
+        assert visited == [5.0]
+
+    def test_skips_node_when_can_crossbreed_false(self):
+        """Nodes with can_crossbreed=False are skipped when include_can_crossbreed=False."""
+        allele = FloatAllele(5.0, can_crossbreed=False)
+        visited = []
+
+        def handler(nodes):
+            visited.append(nodes[0].value)
+            return None
+
+        list(walk_allele_trees([allele], handler, include_can_crossbreed=False))
+
+        assert visited == []
+
+    def test_filters_parent_but_not_children(self):
+        """Filtering applies to each node independently."""
+        child = FloatAllele(10.0, can_mutate=True)
+        parent = FloatAllele(5.0, can_mutate=False, metadata={"child": child})
+
+        visited = []
+
+        def handler(nodes):
+            visited.append(nodes[0].value)
+            return None
+
+        list(walk_allele_trees([parent], handler, include_can_mutate=False))
+
+        # Child visited, parent skipped
+        assert visited == [10.0]
+
+
+class TestWalkAlleleTreesParallelWalking:
+    """Test suite for parallel walking of multiple trees."""
+
+    def test_walks_two_trees_in_parallel(self):
+        """Handler receives list with both alleles at each node."""
+        tree1 = FloatAllele(1.0)
+        tree2 = FloatAllele(2.0)
+
+        def handler(nodes):
+            assert len(nodes) == 2
+            return (nodes[0].value, nodes[1].value)
+
+        results = list(walk_allele_trees([tree1, tree2], handler))
+
+        assert results == [(1.0, 2.0)]
+
+    def test_walks_parallel_trees_with_children(self):
+        """Parallel walk processes corresponding nodes together."""
+        child1 = FloatAllele(10.0)
+        child2 = FloatAllele(20.0)
+        tree1 = FloatAllele(1.0, metadata={"child": child1})
+        tree2 = FloatAllele(2.0, metadata={"child": child2})
+
+        collected = []
+
+        def handler(nodes):
+            collected.append([n.value for n in nodes])
+            return None
+
+        list(walk_allele_trees([tree1, tree2], handler))
+
+        # Children first, then parents
+        assert collected == [[10.0, 20.0], [1.0, 2.0]]
+
+    def test_raises_on_mismatched_types(self):
+        """Raises TypeError when parallel trees have different types at same node."""
+        tree1 = FloatAllele(1.0)
+        tree2 = IntAllele(2)
+
+        with pytest.raises(TypeError) as exc_info:
+            list(walk_allele_trees([tree1, tree2], lambda nodes: None))
+
+        assert "same type" in str(exc_info.value).lower()
+
+
+class TestSynthesizeAlleleTreesBasics:
+    """Test suite for synthesize_allele_trees basic behavior."""
+
+    def test_rebuilds_leaf_node_with_new_value(self):
+        """Handler value is used to rebuild leaf node."""
+        allele = FloatAllele(5.0)
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([allele], handler)
+
+        assert result.value == 10.0
+
+    def test_preserves_allele_type(self):
+        """Result is the same type as input allele."""
+        allele = FloatAllele(5.0)
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([allele], handler)
+
+        assert isinstance(result, FloatAllele)
+
+    def test_rebuilds_tree_children_first(self):
+        """Children rebuilt before parent."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"child": child})
+
+        def handler(nodes):
+            # Double all values
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([parent], handler)
+
+        # Parent value doubled
+        assert result.value == 10.0
+        # Child value doubled in metadata
+        assert result.metadata["child"].value == 20.0
+
+    def test_rebuilds_deeply_nested_tree(self):
+        """Rebuilds deeply nested trees correctly."""
+        level3 = FloatAllele(3.0)
+        level2 = FloatAllele(2.0, metadata={"child": level3})
+        level1 = FloatAllele(1.0, metadata={"child": level2})
+
+        def handler(nodes):
+            return nodes[0].value + 100
+
+        result = synthesize_allele_trees([level1], handler)
+
+        assert result.value == 101.0
+        assert result.metadata["child"].value == 102.0
+        assert result.metadata["child"].metadata["child"].value == 103.0
+
+
+class TestSynthesizeAlleleTreesMetadataFlattening:
+    """Test suite for metadata flattening in synthesize."""
+
+    def test_handler_receives_flattened_metadata(self):
+        """Handler receives alleles with flattened metadata."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"std": child})
+
+        def handler(nodes):
+            if nodes[0].value == 5.0:
+                # Parent's metadata should be flattened
+                assert nodes[0].metadata["std"] == 10.0
+                assert not isinstance(nodes[0].metadata["std"], AbstractAllele)
+            return nodes[0].value
+
+        synthesize_allele_trees([parent], handler)
+
+    def test_result_has_updated_metadata_alleles(self):
+        """Result metadata contains updated alleles (not flattened values)."""
+        child = FloatAllele(10.0)
+        parent = FloatAllele(5.0, metadata={"std": child})
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([parent], handler)
+
+        # Result metadata should contain allele, not flattened value
+        assert isinstance(result.metadata["std"], FloatAllele)
+        assert result.metadata["std"].value == 20.0
+
+
+class TestSynthesizeAlleleTreesFiltering:
+    """Test suite for filtering behavior in synthesize."""
+
+    def test_filtered_node_preserves_original_value(self):
+        """Filtered nodes keep original value but get updated metadata."""
+        child = FloatAllele(10.0, can_mutate=True)
+        parent = FloatAllele(5.0, can_mutate=False, metadata={"child": child})
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([parent], handler, include_can_mutate=False)
+
+        # Parent value unchanged (filtered out)
+        assert result.value == 5.0
+        # Child value doubled (not filtered)
+        assert result.metadata["child"].value == 20.0
+
+    def test_filtered_by_can_crossbreed(self):
+        """Nodes filtered by can_crossbreed keep original value."""
+        allele = FloatAllele(5.0, can_crossbreed=False)
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([allele], handler, include_can_crossbreed=False)
+
+        assert result.value == 5.0  # Original value preserved
+
+
+class TestSynthesizeAlleleTreesParallelSynthesis:
+    """Test suite for parallel synthesis from multiple trees."""
+
+    def test_combines_two_trees(self):
+        """Handler can combine values from multiple trees."""
+        tree1 = FloatAllele(1.0)
+        tree2 = FloatAllele(2.0)
+
+        def handler(nodes):
+            # Average the values
+            return sum(n.value for n in nodes) / len(nodes)
+
+        result = synthesize_allele_trees([tree1, tree2], handler)
+
+        assert result.value == 1.5
+
+    def test_result_is_same_type_as_first_tree(self):
+        """Result type matches first input tree."""
+        tree1 = IntAllele(5)
+        tree2 = IntAllele(10)
+
+        def handler(nodes):
+            return sum(n.value for n in nodes)
+
+        result = synthesize_allele_trees([tree1, tree2], handler)
+
+        assert isinstance(result, IntAllele)
+
+    def test_raises_on_mismatched_types(self):
+        """Raises TypeError when trees have different types at same node."""
+        tree1 = FloatAllele(1.0)
+        tree2 = IntAllele(2)
+
+        with pytest.raises(TypeError):
+            synthesize_allele_trees([tree1, tree2], lambda nodes: nodes[0].value)
+
+
+class TestSynthesizeAlleleTreesImmutability:
+    """Test suite for immutability contracts."""
+
+    def test_does_not_modify_original_tree(self):
+        """Original tree is not modified by synthesis."""
+        original = FloatAllele(5.0)
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([original], handler)
+
+        assert original.value == 5.0
+        assert result.value == 10.0
+
+    def test_does_not_modify_original_metadata(self):
+        """Original metadata alleles are not modified."""
+        child = FloatAllele(10.0)
+        original = FloatAllele(5.0, metadata={"child": child})
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = synthesize_allele_trees([original], handler)
+
+        # Original unchanged
+        assert original.metadata["child"].value == 10.0
+        # Result updated
+        assert result.metadata["child"].value == 20.0
+
+
+class TestInstanceMethodWrappers:
+    """Test suite for walk_tree and update_tree instance methods."""
+
+    def test_walk_tree_wraps_walk_allele_trees(self):
+        """walk_tree is thin wrapper around walk_allele_trees."""
+        allele = FloatAllele(5.0, metadata={"child": FloatAllele(10.0)})
+
+        values = []
+
+        def handler(nodes):
+            values.append(nodes[0].value)
+            return nodes[0].value
+
+        results = list(allele.walk_tree(handler))
+
+        assert values == [10.0, 5.0]  # Children first
+        assert results == [10.0, 5.0]
+
+    def test_update_tree_wraps_synthesize_allele_trees(self):
+        """update_tree is thin wrapper around synthesize_allele_trees."""
+        allele = FloatAllele(5.0, metadata={"child": FloatAllele(10.0)})
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = allele.update_tree(handler)
+
+        assert result.value == 10.0
+        assert result.metadata["child"].value == 20.0
+
+    def test_walk_tree_passes_filter_flags(self):
+        """walk_tree passes filtering flags through."""
+        allele = FloatAllele(5.0, can_mutate=False)
+
+        visited = []
+
+        def handler(nodes):
+            visited.append(nodes[0].value)
+            return None
+
+        list(allele.walk_tree(handler, include_can_mutate=False))
+
+        assert visited == []
+
+    def test_update_tree_passes_filter_flags(self):
+        """update_tree passes filtering flags through."""
+        allele = FloatAllele(5.0, can_mutate=False)
+
+        def handler(nodes):
+            return nodes[0].value * 2
+
+        result = allele.update_tree(handler, include_can_mutate=False)
+
+        assert result.value == 5.0  # Unchanged (filtered)

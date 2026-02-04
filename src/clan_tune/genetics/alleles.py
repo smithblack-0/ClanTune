@@ -926,7 +926,107 @@ class StringAllele(AbstractAllele):
         )
 
 
-# Tree utility functions (to be implemented)
+# Tree utility functions
+
+
+def _validate_parallel_types(alleles: List[AbstractAllele]) -> None:
+    """
+    Validate that all alleles in a list are the same type.
+
+    Args:
+        alleles: List of alleles to validate
+
+    Raises:
+        TypeError: If alleles are not all the same type
+    """
+    if not alleles:
+        return
+
+    first_type = type(alleles[0])
+    if not all(type(a) == first_type for a in alleles):
+        types = [type(a).__name__ for a in alleles]
+        raise TypeError(f"All alleles must be the same type, got: {types}")
+
+
+def _flatten_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Flatten metadata by replacing allele entries with their values.
+
+    Args:
+        metadata: Metadata dict potentially containing alleles
+
+    Returns:
+        Dict with alleles replaced by their .value properties
+    """
+    flattened = {}
+    for key, val in metadata.items():
+        if isinstance(val, AbstractAllele):
+            flattened[key] = val.value
+        else:
+            flattened[key] = val
+    return flattened
+
+
+def _should_include_node(
+    allele: AbstractAllele, include_can_mutate: bool, include_can_crossbreed: bool
+) -> bool:
+    """
+    Determine if a node should be included based on filtering flags.
+
+    Args:
+        allele: The allele to check
+        include_can_mutate: If False, exclude nodes with can_mutate=False
+        include_can_crossbreed: If False, exclude nodes with can_crossbreed=False
+
+    Returns:
+        True if node should be included, False otherwise
+    """
+    if not include_can_mutate and not allele.can_mutate:
+        return False
+    if not include_can_crossbreed and not allele.can_crossbreed:
+        return False
+    return True
+
+
+def _collect_metadata_keys(alleles: List[AbstractAllele]) -> List[str]:
+    """
+    Collect all unique metadata keys across multiple alleles in sorted order.
+
+    Args:
+        alleles: List of alleles to collect keys from
+
+    Returns:
+        Sorted list of unique metadata keys
+    """
+    all_keys = set()
+    for allele in alleles:
+        all_keys.update(allele.metadata.keys())
+    return sorted(all_keys)
+
+
+def _extract_metadata_subtrees(
+    alleles: List[AbstractAllele], key: str
+) -> List[AbstractAllele]:
+    """
+    Extract metadata subtrees for a specific key across multiple alleles.
+
+    Args:
+        alleles: List of alleles to extract from
+        key: Metadata key to extract
+
+    Returns:
+        List of alleles found at that key (skips non-allele values)
+    """
+    subtrees = []
+    for allele in alleles:
+        if key in allele.metadata:
+            node = allele.metadata[key]
+            if isinstance(node, AbstractAllele):
+                subtrees.append(node)
+    return subtrees
+
+
+# Main tree walking utilities
 
 
 def walk_allele_trees(
@@ -935,8 +1035,59 @@ def walk_allele_trees(
     include_can_mutate: bool = True,
     include_can_crossbreed: bool = True,
 ) -> Generator[Any, None, None]:
-    """Walk multiple allele trees in parallel. Implementation pending."""
-    raise NotImplementedError("walk_allele_trees not yet implemented")
+    """
+    Walk multiple allele trees in parallel (depth-first, children-first).
+
+    At each node:
+    1. Recursively processes all metadata alleles first
+    2. Checks filter (can_mutate/can_crossbreed) - skips if filtered out
+    3. Flattens metadata: replaces allele entries with .value, leaves raw values unchanged
+    4. Passes list of flattened alleles to handler
+    5. If handler returns non-None, yields it
+
+    Args:
+        alleles: List of allele trees to walk in parallel
+        handler: Function receiving list of flattened alleles, returns Optional[Any]
+        include_can_mutate: If False, skip nodes with can_mutate=False
+        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+
+    Yields:
+        Non-None values returned by handler
+
+    Raises:
+        TypeError: If alleles are not all the same type at any node
+    """
+    if not alleles:
+        return
+
+    # Validate type consistency
+    _validate_parallel_types(alleles)
+
+    # Recursively walk all metadata alleles first (children-first)
+    for key in _collect_metadata_keys(alleles):
+        subtrees = _extract_metadata_subtrees(alleles, key)
+        if subtrees:
+            yield from walk_allele_trees(
+                subtrees,
+                handler,
+                include_can_mutate=include_can_mutate,
+                include_can_crossbreed=include_can_crossbreed,
+            )
+
+    # Apply filter to current node
+    if not _should_include_node(alleles[0], include_can_mutate, include_can_crossbreed):
+        return
+
+    # Flatten metadata for handler
+    flattened_alleles = [
+        allele.with_overrides(metadata=_flatten_metadata(allele.metadata))
+        for allele in alleles
+    ]
+
+    # Call handler and yield result if not None
+    result = handler(flattened_alleles)
+    if result is not None:
+        yield result
 
 
 def synthesize_allele_trees(
@@ -945,5 +1096,66 @@ def synthesize_allele_trees(
     include_can_mutate: bool = True,
     include_can_crossbreed: bool = True,
 ) -> AbstractAllele:
-    """Synthesize a single result tree from multiple trees. Implementation pending."""
-    raise NotImplementedError("synthesize_allele_trees not yet implemented")
+    """
+    Walk multiple trees and synthesize a single result tree.
+
+    At each node:
+    1. Recursively processes all metadata alleles first (producing updated child alleles)
+    2. If filtered out, just rebuild with new metadata
+    3. Flattens metadata of the original alleles
+    4. Passes list of flattened alleles to handler
+    5. Handler returns a new VALUE (not a new allele)
+    6. Reconstructs the first allele with the new value and updated metadata
+    7. Returns the new tree
+
+    Args:
+        alleles: List of allele trees to synthesize from
+        handler: Function receiving list of flattened alleles and returning new value
+        include_can_mutate: If False, skip nodes with can_mutate=False
+        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+
+    Returns:
+        New tree with updated values and metadata
+
+    Raises:
+        TypeError: If alleles are not all the same type at any node
+    """
+    if not alleles:
+        raise ValueError("synthesize_allele_trees requires at least one allele")
+
+    # Validate type consistency
+    _validate_parallel_types(alleles)
+
+    # Recursively synthesize all metadata alleles first (children-first)
+    first_allele = alleles[0]
+    new_metadata = {}
+
+    for key in _collect_metadata_keys(alleles):
+        subtrees = _extract_metadata_subtrees(alleles, key)
+        if subtrees:
+            # Recursive synthesis of metadata subtree
+            new_metadata[key] = synthesize_allele_trees(
+                subtrees,
+                handler,
+                include_can_mutate=include_can_mutate,
+                include_can_crossbreed=include_can_crossbreed,
+            )
+        elif key in first_allele.metadata:
+            # Keep raw value from first allele
+            new_metadata[key] = first_allele.metadata[key]
+
+    # Apply filter - if filtered out, rebuild with new metadata only
+    if not _should_include_node(first_allele, include_can_mutate, include_can_crossbreed):
+        return first_allele.with_overrides(metadata=new_metadata)
+
+    # Flatten metadata for handler
+    flattened_alleles = [
+        allele.with_overrides(metadata=_flatten_metadata(allele.metadata))
+        for allele in alleles
+    ]
+
+    # Call handler to get new value
+    new_value = handler(flattened_alleles)
+
+    # Rebuild first allele with new value and new metadata
+    return first_allele.with_overrides(value=new_value, metadata=new_metadata)

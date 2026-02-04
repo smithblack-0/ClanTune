@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - AbstractAllele base class with registry-based serialization dispatch
 - Comprehensive test suite for AbstractAllele (38 black-box tests)
-- Tree walking stubs (walk_tree, update_tree) with injection parameters for testability
+- Tree walking utilities (walk_allele_trees, synthesize_allele_trees) with helper functions
+- Comprehensive test suite for tree walking (31 black-box tests)
 - Organized test directory structure (tests/genetics/alleles/)
 - Five concrete allele types:
   - FloatAllele: linear float with min/max clamping, type-narrowed value property

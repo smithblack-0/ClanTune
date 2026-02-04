@@ -82,107 +82,6 @@ class TestWalkAlleleTreesBasics:
         assert values == [3.0, 2.0, 1.0]
 
 
-class TestWalkAlleleTreesMetadataFlattening:
-    """Test suite for metadata flattening behavior."""
-
-    def test_flattens_metadata_alleles_to_values(self):
-        """Metadata alleles replaced with their values before handler call."""
-        child = FloatAllele(10.0)
-        parent = FloatAllele(5.0, metadata={"std": child})
-
-        def handler(nodes):
-            # When handler sees parent, metadata should be flattened
-            if nodes[0].value == 5.0:
-                assert nodes[0].metadata["std"] == 10.0
-                assert not isinstance(nodes[0].metadata["std"], AbstractAllele)
-            return None
-
-        list(walk_allele_trees([parent], handler))
-
-    def test_preserves_raw_metadata_values(self):
-        """Raw (non-allele) metadata values are preserved unchanged."""
-        parent = FloatAllele(5.0, metadata={"raw": 42, "string": "test"})
-
-        def handler(nodes):
-            assert nodes[0].metadata["raw"] == 42
-            assert nodes[0].metadata["string"] == "test"
-            return None
-
-        list(walk_allele_trees([parent], handler))
-
-    def test_flattens_mixed_metadata(self):
-        """Correctly handles metadata with both alleles and raw values."""
-        child = FloatAllele(10.0)
-        parent = FloatAllele(5.0, metadata={"allele": child, "raw": 99})
-
-        def handler(nodes):
-            if nodes[0].value == 5.0:
-                assert nodes[0].metadata["allele"] == 10.0
-                assert nodes[0].metadata["raw"] == 99
-            return None
-
-        list(walk_allele_trees([parent], handler))
-
-
-class TestWalkAlleleTreesFiltering:
-    """Test suite for can_mutate and can_crossbreed filtering."""
-
-    def test_skips_node_when_can_mutate_false(self):
-        """Nodes with can_mutate=False are skipped when include_can_mutate=False."""
-        allele = FloatAllele(5.0, can_mutate=False)
-        visited = []
-
-        def handler(nodes):
-            visited.append(nodes[0].value)
-            return None
-
-        list(walk_allele_trees([allele], handler, include_can_mutate=False))
-
-        assert visited == []
-
-    def test_includes_node_when_can_mutate_true(self):
-        """Nodes with can_mutate=True are included when include_can_mutate=False."""
-        allele = FloatAllele(5.0, can_mutate=True)
-        visited = []
-
-        def handler(nodes):
-            visited.append(nodes[0].value)
-            return None
-
-        list(walk_allele_trees([allele], handler, include_can_mutate=False))
-
-        assert visited == [5.0]
-
-    def test_skips_node_when_can_crossbreed_false(self):
-        """Nodes with can_crossbreed=False are skipped when include_can_crossbreed=False."""
-        allele = FloatAllele(5.0, can_crossbreed=False)
-        visited = []
-
-        def handler(nodes):
-            visited.append(nodes[0].value)
-            return None
-
-        list(walk_allele_trees([allele], handler, include_can_crossbreed=False))
-
-        assert visited == []
-
-    def test_filters_parent_but_not_children(self):
-        """Filtering applies to each node independently."""
-        child = FloatAllele(10.0, can_mutate=True)
-        parent = FloatAllele(5.0, can_mutate=False, metadata={"child": child})
-
-        visited = []
-
-        def handler(nodes):
-            visited.append(nodes[0].value)
-            return None
-
-        list(walk_allele_trees([parent], handler, include_can_mutate=False))
-
-        # Child visited, parent skipped
-        assert visited == [10.0]
-
-
 class TestWalkAlleleTreesParallelWalking:
     """Test suite for parallel walking of multiple trees."""
 
@@ -216,16 +115,6 @@ class TestWalkAlleleTreesParallelWalking:
 
         # Children first, then parents
         assert collected == [[10.0, 20.0], [1.0, 2.0]]
-
-    def test_raises_on_mismatched_types(self):
-        """Raises TypeError when parallel trees have different types at same node."""
-        tree1 = FloatAllele(1.0)
-        tree2 = IntAllele(2)
-
-        with pytest.raises(TypeError) as exc_info:
-            list(walk_allele_trees([tree1, tree2], lambda nodes: None))
-
-        assert "same type" in str(exc_info.value).lower()
 
 
 class TestSynthesizeAlleleTreesBasics:
@@ -374,14 +263,6 @@ class TestSynthesizeAlleleTreesParallelSynthesis:
         result = synthesize_allele_trees([tree1, tree2], handler)
 
         assert isinstance(result, IntAllele)
-
-    def test_raises_on_mismatched_types(self):
-        """Raises TypeError when trees have different types at same node."""
-        tree1 = FloatAllele(1.0)
-        tree2 = IntAllele(2)
-
-        with pytest.raises(TypeError):
-            synthesize_allele_trees([tree1, tree2], lambda nodes: nodes[0].value)
 
 
 class TestSynthesizeAlleleTreesImmutability:

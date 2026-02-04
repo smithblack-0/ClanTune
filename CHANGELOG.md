@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced registry inspection tests with behavior-based round-trip tests
 - Serialization tests validate contracts via round-trip preservation, not schema structure
 - FloatAllele domain normalization (always has "min" and "max" keys, None for unbounded)
+- IntAllele float backing implementation (stores float in superclass, exposes rounded int via property)
 
 ### Changed
 - Updated CLAUDE.md with session bootup checklist (documentation check, release check with analysis and reasoning)
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rewrote CLAUDE.md testing guide with black box testing philosophy (design forcing function)
 - Added encapsulation pattern for rare controlled violations of black box rules (stateless only)
 - Clarified private field/method rules and requirements for testing internal utilities via behavior
+- IntAllele constructor and with_value now accept Union[int, float] for cleaner API
 
 ## [0.1.0] - 2026-02-02
 

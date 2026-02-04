@@ -7,7 +7,7 @@ evolve alongside the values they control.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List, Callable, Generator
+from typing import Any, Dict, Optional, List, Callable, Generator, Union
 
 
 class AbstractAllele(ABC):
@@ -439,24 +439,33 @@ class FloatAllele(AbstractAllele):
 
 class IntAllele(AbstractAllele):
     """
-    Integer allele with rounding and clamping.
+    Integer allele with float backing.
 
-    Internally stores a float value, but presents rounded integer via value property.
+    IntAllele stores a float internally but exposes a rounded integer via the
+    value property. This design enables smooth continuous exploration during
+    mutation (mutating the underlying float) while presenting discrete integer
+    values to the training system.
+
+    The with_value method accepts floats to support this exploration pattern.
+    The raw_value property exposes the underlying float for inspection.
+
     Domain is a dict with "min" and "max" keys (int or None).
-    Values are rounded then clamped to bounds during construction and with_value().
+    Values are clamped to bounds as floats, then value property rounds to int.
     None indicates unbounded in that direction.
 
     Example:
         >>> allele = IntAllele(3.7, domain={"min": 0, "max": 10})
-        >>> allele.value
+        >>> allele.value  # Rounded int
         4
-        >>> allele.raw_value
+        >>> allele.raw_value  # Underlying float
         3.7
+        >>> allele.with_value(4.2).value
+        4
     """
 
     def __init__(
         self,
-        value: float,
+        value: Union[int, float],
         domain: Optional[Dict[str, Optional[int]]] = None,
         can_mutate: bool = True,
         can_crossbreed: bool = True,
@@ -466,7 +475,7 @@ class IntAllele(AbstractAllele):
         Initialize an IntAllele.
 
         Args:
-            value: The float value (will be rounded and clamped)
+            value: The value (int or float, converted to float internally)
             domain: Dict with "min" and "max" keys (int or None). None indicates unbounded.
             can_mutate: Whether this allele should participate in mutation
             can_crossbreed: Whether this allele should participate in crossbreeding
@@ -481,32 +490,44 @@ class IntAllele(AbstractAllele):
                 "max": domain.get("max"),
             }
 
-        # Store raw float value
-        self._raw_value = value
+        # Convert to float internally
+        float_value = float(value)
 
-        # Round to int then clamp to domain bounds
-        rounded_value = round(value)
+        # Clamp the float to domain bounds
         if self._domain["min"] is not None:
-            rounded_value = max(self._domain["min"], rounded_value)
+            float_value = max(float(self._domain["min"]), float_value)
         if self._domain["max"] is not None:
-            rounded_value = min(self._domain["max"], rounded_value)
+            float_value = min(float(self._domain["max"]), float_value)
 
-        super().__init__(rounded_value, can_mutate, can_crossbreed, metadata)
+        # Store the float in superclass
+        super().__init__(float_value, can_mutate, can_crossbreed, metadata)
 
     @property
     def value(self) -> int:
         """The rounded integer value."""
-        return super().value
+        return round(super().value)
 
     @property
     def raw_value(self) -> float:
-        """The underlying float value before rounding."""
-        return self._raw_value
+        """The underlying float value."""
+        return super().value
 
     @property
     def domain(self) -> Dict[str, Optional[int]]:
         """Return domain constraints (copy for safety)."""
         return self._domain.copy()
+
+    def with_value(self, new_value: Union[int, float]) -> "IntAllele":
+        """
+        Return a new allele with updated value.
+
+        Args:
+            new_value: The new value (int or float, converted to float internally)
+
+        Returns:
+            New IntAllele instance with updated value
+        """
+        return self.with_overrides(value=float(new_value))
 
     def with_overrides(self, **constructor_overrides: Any) -> "IntAllele":
         """
@@ -519,7 +540,7 @@ class IntAllele(AbstractAllele):
             New IntAllele instance
         """
         return IntAllele(
-            value=constructor_overrides.get("value", self._raw_value),
+            value=constructor_overrides.get("value", self.raw_value),
             domain=constructor_overrides.get("domain", self._domain),
             can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
             can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
@@ -531,10 +552,10 @@ class IntAllele(AbstractAllele):
         Serialize IntAllele-specific fields.
 
         Returns:
-            Dict with value, domain, and flags
+            Dict with value (float), domain, and flags
         """
         return {
-            "value": self._raw_value,
+            "value": self.raw_value,
             "domain": self.domain,
             "can_mutate": self.can_mutate,
             "can_crossbreed": self.can_crossbreed,

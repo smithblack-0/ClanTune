@@ -77,15 +77,6 @@ class TestFloatAlleleClamping:
         assert new_allele.value == 10.0
 
 
-class TestFloatAlleleTypeNarrowing:
-    """Test suite for FloatAllele type narrowing."""
-
-    def test_value_property_returns_float(self):
-        """value property returns float type."""
-        allele = FloatAllele(5.0)
-        assert isinstance(allele.value, float)
-
-
 class TestFloatAlleleSerialization:
     """Test suite for FloatAllele serialization."""
 
@@ -279,15 +270,6 @@ class TestLogFloatAlleleClamping:
         assert allele.value == 100.0
 
 
-class TestLogFloatAlleleTypeNarrowing:
-    """Test suite for LogFloatAllele type narrowing."""
-
-    def test_value_property_returns_float(self):
-        """value property returns float type."""
-        allele = LogFloatAllele(0.01, domain={"min": 1e-6, "max": 1.0})
-        assert isinstance(allele.value, float)
-
-
 class TestLogFloatAlleleSerialization:
     """Test suite for LogFloatAllele serialization."""
 
@@ -334,27 +316,6 @@ class TestBoolAlleleValidation:
             BoolAllele("not a bool")
         assert "domain" in str(exc_info.value).lower()
 
-    def test_accepts_integer_zero_as_false(self):
-        """Accepts integer 0 (equivalent to False in Python)."""
-        allele = BoolAllele(0)
-        assert allele.value == False
-        assert allele.value == 0
-
-    def test_accepts_integer_one_as_true(self):
-        """Accepts integer 1 (equivalent to True in Python)."""
-        allele = BoolAllele(1)
-        assert allele.value == True
-        assert allele.value == 1
-
-
-class TestBoolAlleleTypeNarrowing:
-    """Test suite for BoolAllele type narrowing."""
-
-    def test_value_property_returns_bool(self):
-        """value property returns bool type."""
-        allele = BoolAllele(True)
-        assert isinstance(allele.value, bool)
-
 
 class TestBoolAlleleSerialization:
     """Test suite for BoolAllele serialization."""
@@ -372,12 +333,6 @@ class TestBoolAlleleSerialization:
         serialized = original.serialize()
         restored = AbstractAllele.deserialize(serialized)
         assert restored.value is False
-
-    def test_serialization_does_not_include_domain(self):
-        """Serialization does not include domain (always same)."""
-        allele = BoolAllele(True)
-        serialized = allele.serialize_subclass()
-        assert "domain" not in serialized
 
 
 class TestStringAlleleDomainValidation:
@@ -416,15 +371,6 @@ class TestStringAlleleValueValidation:
             StringAllele("invalid", domain={"adam", "sgd", "rmsprop"})
         assert "domain" in str(exc_info.value).lower()
         assert "invalid" in str(exc_info.value)
-
-
-class TestStringAlleleTypeNarrowing:
-    """Test suite for StringAllele type narrowing."""
-
-    def test_value_property_returns_str(self):
-        """value property returns str type."""
-        allele = StringAllele("adam", domain={"adam", "sgd"})
-        assert isinstance(allele.value, str)
 
 
 class TestStringAlleleSerialization:

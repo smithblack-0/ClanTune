@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added encapsulation pattern for rare controlled violations of black box rules (stateless only)
 - Clarified private field/method rules and requirements for testing internal utilities via behavior
 - IntAllele constructor and with_value now accept Union[int, float] for cleaner API
+- BoolAllele domain hardcoded to {True, False} (removed unnecessary parameter)
 
 ## [0.1.0] - 2026-02-02
 

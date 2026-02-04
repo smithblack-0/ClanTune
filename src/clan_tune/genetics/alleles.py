@@ -716,7 +716,7 @@ class BoolAllele(AbstractAllele):
     """
     Boolean allele for flag values.
 
-    Domain is a set containing {True, False}.
+    Domain is always {True, False}.
     Raises ValueError if value is not True or False.
 
     Example:
@@ -728,7 +728,6 @@ class BoolAllele(AbstractAllele):
     def __init__(
         self,
         value: bool,
-        domain: Optional[set] = None,
         can_mutate: bool = True,
         can_crossbreed: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
@@ -738,18 +737,17 @@ class BoolAllele(AbstractAllele):
 
         Args:
             value: The boolean value
-            domain: Set containing valid values (defaults to {True, False})
             can_mutate: Whether this allele should participate in mutation
             can_crossbreed: Whether this allele should participate in crossbreeding
             metadata: Optional metadata dict
 
         Raises:
-            ValueError: If value is not in domain
+            ValueError: If value is not True or False
         """
-        # Store domain (default to both True and False)
-        self._domain = domain if domain is not None else {True, False}
+        # Domain is always {True, False}
+        self._domain = {True, False}
 
-        # Validate value is in domain
+        # Validate value is boolean
         if value not in self._domain:
             raise ValueError(f"Value {value} not in domain {self._domain}")
 
@@ -762,7 +760,7 @@ class BoolAllele(AbstractAllele):
 
     @property
     def domain(self) -> set:
-        """Return domain constraints (copy for safety)."""
+        """Return domain constraints (always {True, False})."""
         return self._domain.copy()
 
     def with_overrides(self, **constructor_overrides: Any) -> "BoolAllele":
@@ -777,7 +775,6 @@ class BoolAllele(AbstractAllele):
         """
         return BoolAllele(
             value=constructor_overrides.get("value", self.value),
-            domain=constructor_overrides.get("domain", self._domain),
             can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
             can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
             metadata=constructor_overrides.get("metadata", self._metadata),
@@ -788,11 +785,10 @@ class BoolAllele(AbstractAllele):
         Serialize BoolAllele-specific fields.
 
         Returns:
-            Dict with value, domain (as list for JSON compatibility), and flags
+            Dict with value and flags
         """
         return {
             "value": self.value,
-            "domain": list(self.domain),
             "can_mutate": self.can_mutate,
             "can_crossbreed": self.can_crossbreed,
         }
@@ -813,7 +809,6 @@ class BoolAllele(AbstractAllele):
         """
         return cls(
             value=data["value"],
-            domain=set(data["domain"]),
             can_mutate=data["can_mutate"],
             can_crossbreed=data["can_crossbreed"],
             metadata=metadata,

@@ -1004,28 +1004,6 @@ def _collect_metadata_keys(alleles: List[AbstractAllele]) -> List[str]:
     return sorted(all_keys)
 
 
-def _extract_metadata_subtrees(
-    alleles: List[AbstractAllele], key: str
-) -> List[AbstractAllele]:
-    """
-    Extract metadata subtrees for a specific key across multiple alleles.
-
-    Args:
-        alleles: List of alleles to extract from
-        key: Metadata key to extract
-
-    Returns:
-        List of alleles found at that key (skips non-allele values)
-    """
-    subtrees = []
-    for allele in alleles:
-        if key in allele.metadata:
-            node = allele.metadata[key]
-            if isinstance(node, AbstractAllele):
-                subtrees.append(node)
-    return subtrees
-
-
 # Main tree walking utilities
 
 
@@ -1057,22 +1035,24 @@ def walk_allele_trees(
     Raises:
         TypeError: If alleles are not all the same type at any node
     """
-    if not alleles:
-        return
-
     # Validate type consistency
     _validate_parallel_types(alleles)
 
     # Recursively walk all metadata alleles first (children-first)
     for key in _collect_metadata_keys(alleles):
-        subtrees = _extract_metadata_subtrees(alleles, key)
-        if subtrees:
-            yield from walk_allele_trees(
-                subtrees,
-                handler,
-                include_can_mutate=include_can_mutate,
-                include_can_crossbreed=include_can_crossbreed,
-            )
+        # Peek to check if this key contains alleles or raw values
+        first_value = alleles[0].metadata[key]
+        if not isinstance(first_value, AbstractAllele):
+            continue  # Raw values, no recursion needed
+
+        # Extract alleles from all trees (validation will catch type mismatches)
+        subtrees = [allele.metadata[key] for allele in alleles]
+        yield from walk_allele_trees(
+            subtrees,
+            handler,
+            include_can_mutate=include_can_mutate,
+            include_can_crossbreed=include_can_crossbreed,
+        )
 
     # Apply filter to current node
     if not _should_include_node(alleles[0], include_can_mutate, include_can_crossbreed):
@@ -1131,18 +1111,20 @@ def synthesize_allele_trees(
     new_metadata = {}
 
     for key in _collect_metadata_keys(alleles):
-        subtrees = _extract_metadata_subtrees(alleles, key)
-        if subtrees:
-            # Recursive synthesis of metadata subtree
+        # Peek to check if this key contains alleles or raw values
+        first_value = alleles[0].metadata[key]
+        if isinstance(first_value, AbstractAllele):
+            # Alleles - recursively synthesize
+            subtrees = [allele.metadata[key] for allele in alleles]
             new_metadata[key] = synthesize_allele_trees(
                 subtrees,
                 handler,
                 include_can_mutate=include_can_mutate,
                 include_can_crossbreed=include_can_crossbreed,
             )
-        elif key in first_allele.metadata:
-            # Keep raw value from first allele
-            new_metadata[key] = first_allele.metadata[key]
+        else:
+            # Raw values - keep from first tree
+            new_metadata[key] = first_value
 
     # Apply filter - if filtered out, rebuild with new metadata only
     if not _should_include_node(first_allele, include_can_mutate, include_can_crossbreed):

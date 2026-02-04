@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - LogFloatAllele: log-space float with min > 0 validation and clamping
   - BoolAllele: boolean flags with hardcoded {True, False} domain
   - StringAllele: discrete string choices with required domain set
+- Comprehensive black-box test suite for all concrete allele types (61 tests)
 
 ### Fixed
 - Removed black-box testing violations (schema coupling in serialization tests)

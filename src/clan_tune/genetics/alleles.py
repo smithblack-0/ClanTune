@@ -430,9 +430,482 @@ class FloatAllele(AbstractAllele):
         """
         return cls(
             value=data["value"],
-            domain=data.get("domain"),
-            can_mutate=data.get("can_mutate", True),
-            can_crossbreed=data.get("can_crossbreed", True),
+            domain=data["domain"],
+            can_mutate=data["can_mutate"],
+            can_crossbreed=data["can_crossbreed"],
+            metadata=metadata,
+        )
+
+
+class IntAllele(AbstractAllele):
+    """
+    Integer allele with rounding and clamping.
+
+    Internally stores a float value, but presents rounded integer via value property.
+    Domain is a dict with "min" and "max" keys (int or None).
+    Values are rounded then clamped to bounds during construction and with_value().
+    None indicates unbounded in that direction.
+
+    Example:
+        >>> allele = IntAllele(3.7, domain={"min": 0, "max": 10})
+        >>> allele.value
+        4
+        >>> allele.raw_value
+        3.7
+    """
+
+    def __init__(
+        self,
+        value: float,
+        domain: Optional[Dict[str, Optional[int]]] = None,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize an IntAllele.
+
+        Args:
+            value: The float value (will be rounded and clamped)
+            domain: Dict with "min" and "max" keys (int or None). None indicates unbounded.
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict
+        """
+        # Normalize domain to always have both keys
+        if domain is None:
+            self._domain = {"min": None, "max": None}
+        else:
+            self._domain = {
+                "min": domain.get("min"),
+                "max": domain.get("max"),
+            }
+
+        # Store raw float value
+        self._raw_value = value
+
+        # Round to int then clamp to domain bounds
+        rounded_value = round(value)
+        if self._domain["min"] is not None:
+            rounded_value = max(self._domain["min"], rounded_value)
+        if self._domain["max"] is not None:
+            rounded_value = min(self._domain["max"], rounded_value)
+
+        super().__init__(rounded_value, can_mutate, can_crossbreed, metadata)
+
+    @property
+    def value(self) -> int:
+        """The rounded integer value."""
+        return super().value
+
+    @property
+    def raw_value(self) -> float:
+        """The underlying float value before rounding."""
+        return self._raw_value
+
+    @property
+    def domain(self) -> Dict[str, Optional[int]]:
+        """Return domain constraints (copy for safety)."""
+        return self._domain.copy()
+
+    def with_overrides(self, **constructor_overrides: Any) -> "IntAllele":
+        """
+        Construct new IntAllele with specified overrides.
+
+        Args:
+            **constructor_overrides: Constructor arguments to override
+
+        Returns:
+            New IntAllele instance
+        """
+        return IntAllele(
+            value=constructor_overrides.get("value", self._raw_value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize IntAllele-specific fields.
+
+        Returns:
+            Dict with value, domain, and flags
+        """
+        return {
+            "value": self._raw_value,
+            "domain": self.domain,
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
+        }
+
+    @classmethod
+    def deserialize_subclass(
+        cls, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> "IntAllele":
+        """
+        Deserialize IntAllele from data.
+
+        Args:
+            data: Serialized data dict
+            metadata: Pre-deserialized metadata
+
+        Returns:
+            Reconstructed IntAllele
+        """
+        return cls(
+            value=data["value"],
+            domain=data["domain"],
+            can_mutate=data["can_mutate"],
+            can_crossbreed=data["can_crossbreed"],
+            metadata=metadata,
+        )
+
+
+class LogFloatAllele(AbstractAllele):
+    """
+    Floating point allele with log-space semantics.
+
+    Domain is a dict with "min" and "max" keys.
+    min must be provided and must be > 0 (raises ValueError otherwise).
+    Values are clamped to bounds during construction and with_value().
+    None indicates unbounded in that direction.
+
+    Example:
+        >>> allele = LogFloatAllele(0.001, domain={"min": 1e-6, "max": 1e-2})
+        >>> allele.value
+        0.001
+        >>> clamped = LogFloatAllele(1e-10, domain={"min": 1e-6, "max": 1e-2})
+        >>> clamped.value
+        1e-06
+    """
+
+    def __init__(
+        self,
+        value: float,
+        domain: Optional[Dict[str, Optional[float]]] = None,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize a LogFloatAllele.
+
+        Args:
+            value: The float value
+            domain: Dict with "min" and "max" keys. min must be > 0. None indicates unbounded.
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict
+
+        Raises:
+            ValueError: If domain min is missing or <= 0
+        """
+        # Normalize domain to always have both keys
+        if domain is None:
+            self._domain = {"min": None, "max": None}
+        else:
+            self._domain = {
+                "min": domain.get("min"),
+                "max": domain.get("max"),
+            }
+
+        # Validate that min exists and is > 0
+        if self._domain["min"] is None:
+            raise ValueError("LogFloatAllele requires domain min to be specified")
+        if self._domain["min"] <= 0:
+            raise ValueError(f"LogFloatAllele domain min must be > 0, got {self._domain['min']}")
+
+        # Clamp value to domain bounds
+        clamped_value = value
+        if self._domain["min"] is not None:
+            clamped_value = max(self._domain["min"], clamped_value)
+        if self._domain["max"] is not None:
+            clamped_value = min(self._domain["max"], clamped_value)
+
+        super().__init__(clamped_value, can_mutate, can_crossbreed, metadata)
+
+    @property
+    def value(self) -> float:
+        """The float value."""
+        return super().value
+
+    @property
+    def domain(self) -> Dict[str, Optional[float]]:
+        """Return domain constraints (copy for safety)."""
+        return self._domain.copy()
+
+    def with_overrides(self, **constructor_overrides: Any) -> "LogFloatAllele":
+        """
+        Construct new LogFloatAllele with specified overrides.
+
+        Args:
+            **constructor_overrides: Constructor arguments to override
+
+        Returns:
+            New LogFloatAllele instance
+        """
+        return LogFloatAllele(
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize LogFloatAllele-specific fields.
+
+        Returns:
+            Dict with value, domain, and flags
+        """
+        return {
+            "value": self.value,
+            "domain": self.domain,
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
+        }
+
+    @classmethod
+    def deserialize_subclass(
+        cls, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> "LogFloatAllele":
+        """
+        Deserialize LogFloatAllele from data.
+
+        Args:
+            data: Serialized data dict
+            metadata: Pre-deserialized metadata
+
+        Returns:
+            Reconstructed LogFloatAllele
+        """
+        return cls(
+            value=data["value"],
+            domain=data["domain"],
+            can_mutate=data["can_mutate"],
+            can_crossbreed=data["can_crossbreed"],
+            metadata=metadata,
+        )
+
+
+class BoolAllele(AbstractAllele):
+    """
+    Boolean allele for flag values.
+
+    Domain is a set containing {True, False}.
+    Raises ValueError if value is not True or False.
+
+    Example:
+        >>> allele = BoolAllele(True)
+        >>> allele.value
+        True
+    """
+
+    def __init__(
+        self,
+        value: bool,
+        domain: Optional[set] = None,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize a BoolAllele.
+
+        Args:
+            value: The boolean value
+            domain: Set containing valid values (defaults to {True, False})
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict
+
+        Raises:
+            ValueError: If value is not in domain
+        """
+        # Store domain (default to both True and False)
+        self._domain = domain if domain is not None else {True, False}
+
+        # Validate value is in domain
+        if value not in self._domain:
+            raise ValueError(f"Value {value} not in domain {self._domain}")
+
+        super().__init__(value, can_mutate, can_crossbreed, metadata)
+
+    @property
+    def value(self) -> bool:
+        """The boolean value."""
+        return super().value
+
+    @property
+    def domain(self) -> set:
+        """Return domain constraints (copy for safety)."""
+        return self._domain.copy()
+
+    def with_overrides(self, **constructor_overrides: Any) -> "BoolAllele":
+        """
+        Construct new BoolAllele with specified overrides.
+
+        Args:
+            **constructor_overrides: Constructor arguments to override
+
+        Returns:
+            New BoolAllele instance
+        """
+        return BoolAllele(
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize BoolAllele-specific fields.
+
+        Returns:
+            Dict with value, domain (as list for JSON compatibility), and flags
+        """
+        return {
+            "value": self.value,
+            "domain": list(self.domain),
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
+        }
+
+    @classmethod
+    def deserialize_subclass(
+        cls, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> "BoolAllele":
+        """
+        Deserialize BoolAllele from data.
+
+        Args:
+            data: Serialized data dict
+            metadata: Pre-deserialized metadata
+
+        Returns:
+            Reconstructed BoolAllele
+        """
+        return cls(
+            value=data["value"],
+            domain=set(data["domain"]),
+            can_mutate=data["can_mutate"],
+            can_crossbreed=data["can_crossbreed"],
+            metadata=metadata,
+        )
+
+
+class StringAllele(AbstractAllele):
+    """
+    String allele for discrete choices.
+
+    Domain is a set of valid string values.
+    Raises ValueError if value is not in domain set.
+
+    Example:
+        >>> allele = StringAllele("adam", domain={"adam", "sgd", "rmsprop"})
+        >>> allele.value
+        'adam'
+    """
+
+    def __init__(
+        self,
+        value: str,
+        domain: Optional[set] = None,
+        can_mutate: bool = True,
+        can_crossbreed: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Initialize a StringAllele.
+
+        Args:
+            value: The string value
+            domain: Set of valid string values
+            can_mutate: Whether this allele should participate in mutation
+            can_crossbreed: Whether this allele should participate in crossbreeding
+            metadata: Optional metadata dict
+
+        Raises:
+            ValueError: If domain is None or value is not in domain
+        """
+        # Domain is required for StringAllele
+        if domain is None:
+            raise ValueError("StringAllele requires domain to be specified")
+
+        self._domain = domain
+
+        # Validate value is in domain
+        if value not in self._domain:
+            raise ValueError(f"Value '{value}' not in domain {self._domain}")
+
+        super().__init__(value, can_mutate, can_crossbreed, metadata)
+
+    @property
+    def value(self) -> str:
+        """The string value."""
+        return super().value
+
+    @property
+    def domain(self) -> set:
+        """Return domain constraints (copy for safety)."""
+        return self._domain.copy()
+
+    def with_overrides(self, **constructor_overrides: Any) -> "StringAllele":
+        """
+        Construct new StringAllele with specified overrides.
+
+        Args:
+            **constructor_overrides: Constructor arguments to override
+
+        Returns:
+            New StringAllele instance
+        """
+        return StringAllele(
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+
+    def serialize_subclass(self) -> Dict[str, Any]:
+        """
+        Serialize StringAllele-specific fields.
+
+        Returns:
+            Dict with value, domain (as list for JSON compatibility), and flags
+        """
+        return {
+            "value": self.value,
+            "domain": list(self.domain),
+            "can_mutate": self.can_mutate,
+            "can_crossbreed": self.can_crossbreed,
+        }
+
+    @classmethod
+    def deserialize_subclass(
+        cls, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> "StringAllele":
+        """
+        Deserialize StringAllele from data.
+
+        Args:
+            data: Serialized data dict
+            metadata: Pre-deserialized metadata
+
+        Returns:
+            Reconstructed StringAllele
+        """
+        return cls(
+            value=data["value"],
+            domain=set(data["domain"]),
+            can_mutate=data["can_mutate"],
+            can_crossbreed=data["can_crossbreed"],
             metadata=metadata,
         )
 

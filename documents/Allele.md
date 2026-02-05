@@ -109,6 +109,7 @@ Walks multiple trees and synthesizes a single result tree. The template_tree ide
 6. Passes (template, flattened_source_nodes) to handler
 7. Handler returns new allele (typically constructed from template using `with_value()`)
 8. Re-injects resolved children into result via `unflatten()` and returns synthesized tree
+
 **Error Conditions:** Checked in step 2:
 - Type matching: All corresponding values (domain, flags, metadata) must be same type. Raises TypeError.
 - Schema matching: All raw values (domain, can_mutate, can_crossbreed, raw metadata values) must match exactly across source nodes. Only alleles in metadata may differ (they get synthesized). Raises ValueError if raw values don't match.

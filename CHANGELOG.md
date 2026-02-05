@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Private helper _flatten_metadata() (replaced by public AbstractAllele.flatten() method)
 
 ### Fixed
+- Rebuilt synthesize_allele_trees to match specification (Allele.md lines 89-118)
+  - Added template_tree parameter, handler signature now (template, sources) → Allele
+  - Added schema validation, uses flatten/unflatten for metadata handling
+  - Added _validate_schemas_match helper function with test suite (5 tests)
+  - Updated walk_allele_trees to use flatten() method
+  - Updated 12 tests to match new contracts
 - Removed black-box testing violations (schema coupling in serialization tests)
 - Test fixtures now use public properties instead of private fields
 - Replaced registry inspection tests with behavior-based round-trip tests

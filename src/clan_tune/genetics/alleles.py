@@ -1010,6 +1010,32 @@ def _validate_parallel_types(alleles: List[AbstractAllele]) -> None:
 # Migrate callers to use the instance method rather than this private helper.
 
 
+def _validate_schemas_match(alleles: List[AbstractAllele]) -> None:
+    """
+    Validate all alleles have matching schemas (domain, flags).
+
+    Args:
+        alleles: List of alleles to validate
+
+    Raises:
+        ValueError: If domains or flags don't match across alleles
+    """
+    first_domain = alleles[0].domain
+    if not all(a.domain == first_domain for a in alleles):
+        domains = [a.domain for a in alleles]
+        raise ValueError(f"Domain mismatch across sources: {domains}")
+
+    first_mutate = alleles[0].can_mutate
+    if not all(a.can_mutate == first_mutate for a in alleles):
+        flags = [a.can_mutate for a in alleles]
+        raise ValueError(f"can_mutate mismatch across sources: {flags}")
+
+    first_crossbreed = alleles[0].can_crossbreed
+    if not all(a.can_crossbreed == first_crossbreed for a in alleles):
+        flags = [a.can_crossbreed for a in alleles]
+        raise ValueError(f"can_crossbreed mismatch across sources: {flags}")
+
+
 def _should_include_node(
     allele: AbstractAllele, include_can_mutate: bool, include_can_crossbreed: bool
 ) -> bool:
@@ -1102,10 +1128,7 @@ def walk_allele_trees(
         return
 
     # Flatten metadata for handler
-    flattened_alleles = [
-        allele.with_overrides(metadata=_flatten_metadata(allele.metadata))
-        for allele in alleles
-    ]
+    flattened_alleles = [allele.flatten() for allele in alleles]
 
     # Call handler and yield result if not None
     result = handler(flattened_alleles)
@@ -1113,74 +1136,138 @@ def walk_allele_trees(
         yield result
 
 
-def synthesize_allele_trees(
-    alleles: List[AbstractAllele],
-    handler: Callable[[List[AbstractAllele]], Any],
-    include_can_mutate: bool = True,
-    include_can_crossbreed: bool = True,
-) -> AbstractAllele:
+def _synthesize_allele_trees_impl(
+    template_idx: int,
+    nodes: List[Union[AbstractAllele, Any]],
+    handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+    include_can_mutate: bool,
+    include_can_crossbreed: bool,
+) -> Union[AbstractAllele, Any]:
     """
-    Walk multiple trees and synthesize a single result tree.
+    Inner helper for synthesize_allele_trees.
 
-    At each node:
-    1. Recursively processes all metadata alleles first (producing updated child alleles)
-    2. If filtered out, just rebuild with new metadata
-    3. Flattens metadata of the original alleles
-    4. Passes list of flattened alleles to handler
-    5. Handler returns a new VALUE (not a new allele)
-    6. Reconstructs the first allele with the new value and updated metadata
-    7. Returns the new tree
+    Handles recursion with template index preservation. Accepts both alleles and raw values,
+    using base case check to terminate recursion.
 
     Args:
-        alleles: List of allele trees to synthesize from
-        handler: Function receiving list of flattened alleles and returning new value
+        template_idx: Index of template node in nodes list
+        nodes: List of nodes (alleles or raw values) to synthesize
+        handler: Function receiving (template, sources) and returning new allele
         include_can_mutate: If False, skip nodes with can_mutate=False
         include_can_crossbreed: If False, skip nodes with can_crossbreed=False
 
     Returns:
-        New tree with updated values and metadata
+        Synthesized allele or validated raw value
 
     Raises:
+        TypeError: If nodes are not all the same type
+        ValueError: If raw values don't match or schema mismatch
+    """
+    # Base case: all raw values (not alleles)
+    if not isinstance(nodes[0], AbstractAllele):
+        # Validate all raw values match exactly
+        if not all(v == nodes[0] for v in nodes):
+            raise ValueError(f"Raw value mismatch: {nodes}")
+        return nodes[0]
+
+    # We're dealing with alleles - cast for type checker
+    alleles: List[AbstractAllele] = nodes  # type: ignore
+
+    # Validate type consistency and schema matching
+    _validate_parallel_types(alleles)
+    _validate_schemas_match(alleles)
+
+    # Recursively synthesize metadata children first (children-first)
+    resolved_metadata = {}
+    for key in _collect_metadata_keys(alleles):
+        # Always recurse - base case handles raw values
+        values = [a.metadata[key] for a in alleles]
+        resolved_metadata[key] = _synthesize_allele_trees_impl(
+            template_idx,
+            values,
+            handler,
+            include_can_mutate,
+            include_can_crossbreed,
+        )
+
+    # Create template: source node at template position with resolved metadata
+    template_source = alleles[template_idx]
+    template = template_source.with_metadata(**resolved_metadata)
+
+    # Check filtering: if excluded, return template (skip handler)
+    if not _should_include_node(template, include_can_mutate, include_can_crossbreed):
+        return template
+
+    # Flatten template and sources for handler
+    flattened_template = template.flatten()
+    flattened_sources = [a.flatten() for a in alleles]
+
+    # Call handler with (template, sources)
+    result = handler(flattened_template, flattened_sources)
+
+    # Unflatten to restore resolved metadata structure
+    return result.unflatten(resolved_metadata)
+
+
+def synthesize_allele_trees(
+    template_tree: AbstractAllele,
+    alleles: List[AbstractAllele],
+    handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+    include_can_mutate: bool = True,
+    include_can_crossbreed: bool = True,
+) -> AbstractAllele:
+    """
+    Synthesize multiple allele trees into a single result tree.
+
+    Mental model: You have N source alleles and want to create one result by combining
+    their values. The template_tree determines the result's structure (domain, flags,
+    metadata schema), while the handler determines how to combine values.
+
+    Handler receives:
+    - template: Allele with result structure and resolved metadata (children already
+      synthesized and restored to template's metadata)
+    - sources: List of flattened source alleles (metadata contains raw values only)
+
+    Handler returns: New allele, typically via template.with_value(combined_value)
+
+    Guarantees:
+    - Result structure matches template (domain, flags, metadata keys)
+    - All sources validated for schema compatibility (raises ValueError if mismatch)
+    - List order preserved across recursion (important for crossbreeding)
+    - Filtering respected (can_mutate/can_crossbreed flags)
+
+    See documents/Allele.md lines 89-118 for detailed algorithm specification.
+
+    Args:
+        template_tree: Source allele whose structure to use (must be in alleles list)
+        alleles: List of source allele trees to synthesize from
+        handler: Function receiving (template, sources) and returning new allele
+        include_can_mutate: If False, skip nodes with can_mutate=False
+        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+
+    Returns:
+        New synthesized tree with template structure and handler-computed values
+
+    Raises:
+        ValueError: If template_tree not in alleles, or schema mismatch
         TypeError: If alleles are not all the same type at any node
+
+    Example:
+        >>> def average_handler(template, sources):
+        ...     avg = sum(s.value for s in sources) / len(sources)
+        ...     return template.with_value(avg)
+        >>> result = synthesize_allele_trees(parent1, [parent1, parent2], average_handler)
     """
     if not alleles:
         raise ValueError("synthesize_allele_trees requires at least one allele")
 
-    # Validate type consistency
-    _validate_parallel_types(alleles)
+    # Validate template_tree is in alleles list
+    try:
+        template_idx = alleles.index(template_tree)
+    except ValueError:
+        raise ValueError("template_tree must be present in alleles list")
 
-    # Recursively synthesize all metadata alleles first (children-first)
-    first_allele = alleles[0]
-    new_metadata = {}
-
-    for key in _collect_metadata_keys(alleles):
-        # Peek to check if this key contains alleles or raw values
-        first_value = alleles[0].metadata[key]
-        if isinstance(first_value, AbstractAllele):
-            # Alleles - recursively synthesize
-            subtrees = [allele.metadata[key] for allele in alleles]
-            new_metadata[key] = synthesize_allele_trees(
-                subtrees,
-                handler,
-                include_can_mutate=include_can_mutate,
-                include_can_crossbreed=include_can_crossbreed,
-            )
-        else:
-            # Raw values - keep from first tree
-            new_metadata[key] = first_value
-
-    # Apply filter - if filtered out, rebuild with new metadata only
-    if not _should_include_node(first_allele, include_can_mutate, include_can_crossbreed):
-        return first_allele.with_overrides(metadata=new_metadata)
-
-    # Flatten metadata for handler
-    flattened_alleles = [
-        allele.with_overrides(metadata=_flatten_metadata(allele.metadata))
-        for allele in alleles
-    ]
-
-    # Call handler to get new value
-    new_value = handler(flattened_alleles)
-
-    # Rebuild first allele with new value and new metadata
-    return first_allele.with_overrides(value=new_value, metadata=new_metadata)
+    # Call inner helper with template index
+    return _synthesize_allele_trees_impl(
+        template_idx, alleles, handler, include_can_mutate, include_can_crossbreed
+    )

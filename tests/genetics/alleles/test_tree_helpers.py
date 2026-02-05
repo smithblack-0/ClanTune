@@ -10,7 +10,7 @@ from src.clan_tune.genetics.alleles import (
     FloatAllele,
     IntAllele,
     _validate_parallel_types,
-    _flatten_metadata,
+    _validate_schemas_match,
     _should_include_node,
     _collect_metadata_keys,
 )
@@ -200,3 +200,63 @@ class TestCollectMetadataKeys:
         keys = _collect_metadata_keys([allele1, allele2])
 
         assert keys == ["a"]
+
+
+class TestValidateSchemasMatch:
+    """Test suite for _validate_schemas_match helper function."""
+
+    def test_passes_when_all_schemas_match(self):
+        """No exception when all alleles have matching schemas."""
+        alleles = [
+            FloatAllele(1.0, domain={"min": 0.0, "max": 10.0}, can_mutate=True, can_crossbreed=True),
+            FloatAllele(2.0, domain={"min": 0.0, "max": 10.0}, can_mutate=True, can_crossbreed=True),
+            FloatAllele(3.0, domain={"min": 0.0, "max": 10.0}, can_mutate=True, can_crossbreed=True),
+        ]
+
+        # Should not raise
+        _validate_schemas_match(alleles)
+
+    def test_raises_on_domain_mismatch(self):
+        """Raises ValueError when domains don't match."""
+        alleles = [
+            FloatAllele(1.0, domain={"min": 0.0, "max": 10.0}),
+            FloatAllele(2.0, domain={"min": 0.0, "max": 20.0}),  # Different max
+        ]
+
+        with pytest.raises(ValueError, match="Domain mismatch"):
+            _validate_schemas_match(alleles)
+
+    def test_raises_on_can_mutate_mismatch(self):
+        """Raises ValueError when can_mutate flags don't match."""
+        alleles = [
+            FloatAllele(1.0, can_mutate=True),
+            FloatAllele(2.0, can_mutate=False),  # Different flag
+        ]
+
+        with pytest.raises(ValueError, match="can_mutate mismatch"):
+            _validate_schemas_match(alleles)
+
+    def test_raises_on_can_crossbreed_mismatch(self):
+        """Raises ValueError when can_crossbreed flags don't match."""
+        alleles = [
+            FloatAllele(1.0, can_crossbreed=True),
+            FloatAllele(2.0, can_crossbreed=False),  # Different flag
+        ]
+
+        with pytest.raises(ValueError, match="can_crossbreed mismatch"):
+            _validate_schemas_match(alleles)
+
+    def test_error_message_includes_mismatched_values(self):
+        """Error message includes the actual mismatched values."""
+        alleles = [
+            FloatAllele(1.0, domain={"min": 0.0, "max": 10.0}),
+            FloatAllele(2.0, domain={"min": 0.0, "max": 20.0}),
+        ]
+
+        with pytest.raises(ValueError) as exc_info:
+            _validate_schemas_match(alleles)
+
+        # Error message should include both domains
+        error_msg = str(exc_info.value)
+        assert "10.0" in error_msg or "10" in error_msg
+        assert "20.0" in error_msg or "20" in error_msg

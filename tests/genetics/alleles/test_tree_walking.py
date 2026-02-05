@@ -124,10 +124,10 @@ class TestSynthesizeAlleleTreesBasics:
         """Handler value is used to rebuild leaf node."""
         allele = FloatAllele(5.0)
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([allele], handler)
+        result = synthesize_allele_trees(allele, [allele], handler)
 
         assert result.value == 10.0
 
@@ -135,10 +135,10 @@ class TestSynthesizeAlleleTreesBasics:
         """Result is the same type as input allele."""
         allele = FloatAllele(5.0)
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([allele], handler)
+        result = synthesize_allele_trees(allele, [allele], handler)
 
         assert isinstance(result, FloatAllele)
 
@@ -147,11 +147,11 @@ class TestSynthesizeAlleleTreesBasics:
         child = FloatAllele(10.0)
         parent = FloatAllele(5.0, metadata={"child": child})
 
-        def handler(nodes):
+        def handler(template, sources):
             # Double all values
-            return nodes[0].value * 2
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([parent], handler)
+        result = synthesize_allele_trees(parent, [parent], handler)
 
         # Parent value doubled
         assert result.value == 10.0
@@ -164,10 +164,10 @@ class TestSynthesizeAlleleTreesBasics:
         level2 = FloatAllele(2.0, metadata={"child": level3})
         level1 = FloatAllele(1.0, metadata={"child": level2})
 
-        def handler(nodes):
-            return nodes[0].value + 100
+        def handler(template, sources):
+            return template.with_value(sources[0].value + 100)
 
-        result = synthesize_allele_trees([level1], handler)
+        result = synthesize_allele_trees(level1, [level1], handler)
 
         assert result.value == 101.0
         assert result.metadata["child"].value == 102.0
@@ -182,24 +182,24 @@ class TestSynthesizeAlleleTreesMetadataFlattening:
         child = FloatAllele(10.0)
         parent = FloatAllele(5.0, metadata={"std": child})
 
-        def handler(nodes):
-            if nodes[0].value == 5.0:
-                # Parent's metadata should be flattened
-                assert nodes[0].metadata["std"] == 10.0
-                assert not isinstance(nodes[0].metadata["std"], AbstractAllele)
-            return nodes[0].value
+        def handler(template, sources):
+            if sources[0].value == 5.0:
+                # Sources' metadata should be flattened
+                assert sources[0].metadata["std"] == 10.0
+                assert not isinstance(sources[0].metadata["std"], AbstractAllele)
+            return template.with_value(sources[0].value)
 
-        synthesize_allele_trees([parent], handler)
+        synthesize_allele_trees(parent, [parent], handler)
 
     def test_result_has_updated_metadata_alleles(self):
         """Result metadata contains updated alleles (not flattened values)."""
         child = FloatAllele(10.0)
         parent = FloatAllele(5.0, metadata={"std": child})
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([parent], handler)
+        result = synthesize_allele_trees(parent, [parent], handler)
 
         # Result metadata should contain allele, not flattened value
         assert isinstance(result.metadata["std"], FloatAllele)
@@ -214,10 +214,10 @@ class TestSynthesizeAlleleTreesFiltering:
         child = FloatAllele(10.0, can_mutate=True)
         parent = FloatAllele(5.0, can_mutate=False, metadata={"child": child})
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([parent], handler, include_can_mutate=False)
+        result = synthesize_allele_trees(parent, [parent], handler, include_can_mutate=False)
 
         # Parent value unchanged (filtered out)
         assert result.value == 5.0
@@ -228,10 +228,10 @@ class TestSynthesizeAlleleTreesFiltering:
         """Nodes filtered by can_crossbreed keep original value."""
         allele = FloatAllele(5.0, can_crossbreed=False)
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([allele], handler, include_can_crossbreed=False)
+        result = synthesize_allele_trees(allele, [allele], handler, include_can_crossbreed=False)
 
         assert result.value == 5.0  # Original value preserved
 
@@ -244,23 +244,24 @@ class TestSynthesizeAlleleTreesParallelSynthesis:
         tree1 = FloatAllele(1.0)
         tree2 = FloatAllele(2.0)
 
-        def handler(nodes):
+        def handler(template, sources):
             # Average the values
-            return sum(n.value for n in nodes) / len(nodes)
+            avg = sum(s.value for s in sources) / len(sources)
+            return template.with_value(avg)
 
-        result = synthesize_allele_trees([tree1, tree2], handler)
+        result = synthesize_allele_trees(tree1, [tree1, tree2], handler)
 
         assert result.value == 1.5
 
-    def test_result_is_same_type_as_first_tree(self):
-        """Result type matches first input tree."""
+    def test_result_is_same_type_as_template_tree(self):
+        """Result type matches template tree."""
         tree1 = IntAllele(5)
         tree2 = IntAllele(10)
 
-        def handler(nodes):
-            return sum(n.value for n in nodes)
+        def handler(template, sources):
+            return template.with_value(sum(s.value for s in sources))
 
-        result = synthesize_allele_trees([tree1, tree2], handler)
+        result = synthesize_allele_trees(tree1, [tree1, tree2], handler)
 
         assert isinstance(result, IntAllele)
 
@@ -272,10 +273,10 @@ class TestSynthesizeAlleleTreesImmutability:
         """Original tree is not modified by synthesis."""
         original = FloatAllele(5.0)
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([original], handler)
+        result = synthesize_allele_trees(original, [original], handler)
 
         assert original.value == 5.0
         assert result.value == 10.0
@@ -285,10 +286,10 @@ class TestSynthesizeAlleleTreesImmutability:
         child = FloatAllele(10.0)
         original = FloatAllele(5.0, metadata={"child": child})
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees([original], handler)
+        result = synthesize_allele_trees(original, [original], handler)
 
         # Original unchanged
         assert original.metadata["child"].value == 10.0

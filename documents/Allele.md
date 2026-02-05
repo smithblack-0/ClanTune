@@ -12,7 +12,7 @@ Note concrete implementations should include type hints.
 
 Every allele has five fields:
 
-**`value: Any`** — the actual parameter value. Type depends on subclass.
+**`value: Any`** — the actual parameter value. Type depends on subclass. Shows the final product, but perhaps not internal state used to get to it. 
 **`domain: Dict`** — constraints on valid values (min/max bounds or discrete choices). Exact details will follow.
 **`can_mutate: bool`** — signals whether this allele's value should participate in mutation. This is signaling only — the allele does not enforce it. Utilities and strategies should be setup to respect it
 **`can_crossbreed: bool`** — signals whether this allele's value should participate in crossbreeding. Signaling only, not enforced by the allele.
@@ -23,10 +23,13 @@ Every allele has five fields:
 
 **`with_value(new_value) -> Allele`** — returns a new allele with updated value. Applies domain validation and clamping through constructor
 **`with_metadata(**updates) -> Allele`** — returns a new allele with metadata entries added or updated. Used for incremental construction.
+**`flatten() -> Allele`** — returns a new allele where all alleles in metadata are replaced with their `.value`. Raw metadata values unchanged. Used by tree synthesis to create templates and flattened source nodes.
+**`unflatten(resolved_metadata: Dict[str, Allele]) -> Allele`** — returns a new allele with metadata alleles restored from resolved_metadata dict. Replaces flattened values with actual allele objects. Used by tree synthesis to re-inject resolved children after handler returns.
 **`walk_tree(handler) -> Generatort[Any, None, None]`** — walks this allele's tree and yields results. Thin wrapper around `walk_allele_trees` for single-tree use.
 **`update_tree(handler) -> Allele`** — transforms this allele's tree. Thin wrapper around `synthesize_allele_trees` for single-tree use. Returns a new tree with the updates
 **`serialize() -> Dict`** — converts to dict, including recursive serialization of metadata alleles.
 **`deserialize(data) -> Allele`** (classmethod) — reconstructs from dict, including recursive deserialization.
+** Others: Concrete types can add their own methods.
 
 ## Concrete Types
 
@@ -49,12 +52,9 @@ FloatAllele (learning rate)
        └─ metadata["mutation_std"] → 0.05 (raw value: how std itself mutates)
 ```
 
-When this tree is mutated:
-1. Mutate the std allele first (using its `mutation_std` constant)
-2. Use the updated std value to mutate the learning rate
-3. Return the new tree with both values updated
-
 Children are processed before parents. Metadata values feed into parent operations.
+
+**Terminology note:** "Source nodes" refers to the input alleles being operated on by tree utilities (e.g., parent individuals in crossbreeding, or the original tree in mutation). This distinguishes from "parent node" which refers to tree structure relationships (a node and its metadata children). "Template tree" refers to the source tree whose structure (domain, flags, raw metadata values) is used as the base for synthesis - alleles in metadata are resolved recursively, raw values are taken from the template.
 
 ---
 
@@ -64,71 +64,81 @@ The allele module provides functional tree walking and synthesis utilities. Thes
 
 ### walk_allele_trees
 
+The utility handles tree recursion and node traversal. The user specifies what information to extract from each node. Returns a generator stream of extracted results.
+
 ```python
 def walk_allele_trees(
     alleles: List[Allele],
     handler: Callable[[List[Allele]], Optional[Any]],
     include_can_mutate: bool = True,
     include_can_crossbreed: bool = True,
-) -> Generator[List[Any], None, None]:
+) -> Generator[Any, None, None]:
 ```
 
-Keep in mind the walk is depth-first and child-first.
-
-Walks multiple allele trees in parallel (depth-first, children-first). At each node:
+Walks multiple allele trees in parallel (depth-first, children-first). List order is preserved across recursion. At each node:
 1. Recursively processes all metadata alleles first
-2. Proceed if filter passes, else skip.
-3. Flattens metadata: replaces allele entries with their `.value`, leaving raw values unchanged
+2. Checks filtering: if node excluded by `include_can_mutate` or `include_can_crossbreed`, skips to next node
+3. Flattens metadata: Invokes flatten on all nodes so only raw types are present in metadata when viewed
 4. Passes a list of flattened alleles (one per input tree) to `handler`
-5. If `handler` returns a value (not None), collects it in the result list
-6. Returns generator of a list of values yielded by relevent `handler` across the entire walk; skip if everything was none. 
+5. If `handler` returns a value (not None), yields it directly. Otherwise continues to next node.
 
-**Flattened allele:** An Allele where `metadata` contains only raw values (allele entries replaced with their `.value`).
-
-**Use case:** Inspection, collection, comparison. Crossbreeding strategies use this to see multiple parents' values side-by-side.
-
-**Error Conditions**: Node or output values being of different types is an error condition. 
+**Error Conditions**:
+- Type matching: Corresponding values must be the same type, whether alleles or raw values. Raises TypeError.
+- Schema matching NOT required: Raw values (domain, flags, metadata) may differ. Useful for comparing trees with different schemas. 
 
 ### synthesize_allele_trees
 
+The utility handles recursive tree synthesis (N source nodes → 1 result tree) and metadata resolution. The user specifies how to construct each node from a template and source nodes. Returns a new synthesized tree.
+
 ```python
 def synthesize_allele_trees(
+    template_tree: Allele,
     alleles: List[Allele],
-    handler: Callable[[List[Allele]], Any],
+    handler: Callable[[Allele, List[Allele]], Allele],
     include_can_mutate: bool = True,
     include_can_crossbreed: bool = True,
 ) -> Allele:
 ```
 
-Walks multiple trees and synthesizes a single result tree. At each node:
-1. Recursively processes all metadata alleles first (producing updated child alleles)
-2. If case not included, just rebuild myself with my new metadata.
-3. Flattens metadata of the original alleles
-4. Passes list of flattened alleles to `handler`
-5. `handler` returns a new **value** (not a new allele, just the value)
-6. Reconstructs the first allele with the new value and the updated metadata from step 1
-7. Returns the new tree
+Walks multiple trees and synthesizes a single result tree. The template_tree identifies which source tree's structure to use for the result (must be in alleles list). List order is preserved across recursion. At each node:
+1. Recursively synthesizes metadata children first (N→1 for each metadata key, producing resolved child alleles)
+2. Handles validation logic and base cases
+3. Creates template (source node at template_tree's position with resolved metadata)
+4. Checks filtering: if node excluded by `include_can_mutate` or `include_can_crossbreed`, returns template (skips handler)
+5. Flattens both template and source nodes via `flatten()`
+6. Passes (template, flattened_source_nodes) to handler
+7. Handler returns new allele (typically constructed from template using `with_value()`)
+8. Re-injects resolved children into result via `unflatten()` and returns synthesized tree
+**Error Conditions:** Checked in step 2:
+- Type matching: All corresponding values (domain, flags, metadata) must be same type. Raises TypeError.
+- Schema matching: All raw values (domain, can_mutate, can_crossbreed, raw metadata values) must match exactly across source nodes. Only alleles in metadata may differ (they get synthesized). Raises ValueError if raw values don't match.
 
-**Handler contract:** Returns only the new value. The utility handles rebuilding the allele with that value and the updated metadata.
-**Use case:** Mutation strategies (transform one tree), crossbreeding strategies (combine multiple trees).
-**Error Conditions**: Node or output values being of different types is an error condition. 
+**Handler contract:** Receives template allele (with flattened resolved metadata) and list of flattened source nodes. Returns new allele, typically constructed from template via `template.with_value(new_value)`. Template provides resolved metadata and domain. Source nodes provide values to combine/transform.
+
+**Implementation recommendation:** Use recursive dispatch on metadata types (alleles vs raw values). Base case: all raw values must match exactly - validate and return the shared value. Recursive case: alleles - synthesize children first, then build parent. This progressively constructs the result tree from children up. To find the template position at each recursion level, use `alleles.index(template_tree)` to identify which source is the template. 
 
 ### Instance Methods: walk_tree / update_tree
 
-Allele provides thin wrappers for single-tree operations:
+Allele provides convenience wrappers for single-tree operations:
 
 ```python
-def walk_tree(self, handler, include_can_mutate=True, include_can_crossbreed=True)->Generator[Any, None, None]:
+def walk_tree(self, handler: Callable[[Allele], Optional[Any]], include_can_mutate=True, include_can_crossbreed=True) -> Generator[Any, None, None]:
     ...
-def update_tree(self, handler, include_can_mutate=True, include_can_crossbreed=True)->Generator[Any, None, None]:
+def update_tree(self, handler: Callable[[Allele], Allele], include_can_mutate=True, include_can_crossbreed=True) -> Allele:
     ...
 ```
 
-These hide the list-based API when you're only operating on one tree.
+These wrappers:
+- Hide the list-based API (internally call core utilities with `[self]`)
+- Adapt handler signatures for single-tree convenience (handler receives single allele, not list)
+- For `update_tree`, automatically use `self` as template_tree
+- Preserve filtering capability via `include_can_mutate` and `include_can_crossbreed` parameters
 
-### Metadata Flattening
+### Flattening and Unflattening
 
-Before calling user handlers, metadata is flattened:
+Tree utilities use flattening and unflattening to simplify handler logic while preserving tree structure.
+
+**Flattening** (via `flatten()` method) replaces alleles in metadata with their `.value`, leaving raw values unchanged:
 ```python
 flattened_metadata = {
     key: node.value if isinstance(node, AbstractAllele) else node
@@ -136,7 +146,9 @@ flattened_metadata = {
 }
 ```
 
-Handlers receive alleles where metadata contains only raw values. Decision logic is simple — no need to understand recursion or tree structure.
+Handlers receive flattened alleles where metadata contains only raw values. Decision logic is simple — no need to understand recursion or tree structure.
+
+**Unflattening** (via `unflatten(resolved_metadata)` method) restores allele structure after handler returns. Takes a dict mapping metadata keys to resolved alleles and replaces the flattened values. This re-injects the recursively synthesized children into the result tree, preserving the full allele structure.
 
 ## Tree Construction
 
@@ -147,7 +159,7 @@ by directly passing the relevant metadata into the constructor
 
 ## Domain
 
-Domain is a plain `dict` that defines valid values for an allele. The keys are interpreted based on allele type. Domain enforcement happens when the allele is constructed (and therefore also when `with_value(...)` constructs a new instance): values are clipped into the valid range when that is meaningful, and an exception is raised when the value cannot be made valid (for example, a log-space allele given a non-positive value).
+Domain defines valid values for an allele. Domain contains raw values only (not alleles). Structure depends on allele type (Dict for continuous, Set for discrete). Domain enforcement happens at construction and when `with_value()` is called: values are clipped to domain bounds when a clear metric exists (continuous domains), and an exception is raised when no clipping metric exists (discrete domains with no clear choice).
 
 **Continuous (min/max):**
 ```python
@@ -158,10 +170,9 @@ Domain is a plain `dict` that defines valid values for an allele. The keys are i
 Used by `FloatAllele`, `IntAllele`, `LogFloatAllele`. Note `LogFloatAllele` requires `"min"` and requires it is greater than zero.
 
 **Discrete (set):**
-
-```%python
-"adam", "sgd"} # String domains;
-{True, False} # Bool domain
+```python
+{"adam", "sgd"}  # String domains
+{True, False}    # Bool domain
 ```
 
 Used by `StringAllele`, `BoolAllele`.
@@ -176,7 +187,7 @@ The allele owns:
 - Immutable copy operations
 - Serialization/deserialization
 
-The utilties own:
+The utilities own:
 
 - Allele walking
 - Allele updating
@@ -272,13 +283,14 @@ def gaussian_mutate(allele):
         # node.metadata is flattened: all raw values
         chance = node.metadata["mutation_chance"]
         std = node.metadata["std"]
-        
+
         if random.random() > chance:
-            return node.value  # No mutation
-        
-        # Return new value only (not new allele)
-        return node.value + random.gauss(0, std)
-    
+            return node  # No mutation
+
+        # Return new allele with mutated value
+        new_value = node.value + random.gauss(0, std)
+        return node.with_value(new_value)
+
     return allele.update_tree(mutate_value)
 ```
 
@@ -290,12 +302,13 @@ The handler never sees nested alleles — `node.metadata["std"]` is a raw float.
 
 - Value is never an allele. Always a raw type.
 - Metadata can contain alleles or raw values. Alleles recurse, raw values don't.
-- Use  `include_can_mutate=False` or `include_can_crossbreed=False` to exclude marked nodes while walking. 
+- Use  `include_can_mutate=False` or `include_can_crossbreed=False` to exclude marked nodes while walking.
 - Alleles are immutable. All modifications return new instances.
 - Domain must match allele type.
 - Tree utilities flatten metadata before calling handlers.
 - Tree operations are depth-first, children-first.
+- List order is preserved across recursion in tree utilities.
 - Domain validation and clamping happens in `__init__` and `with_value`.
 - Users extend concrete types (FloatAllele, etc.) for strategy-specific alleles, not AbstractAllele.
-- Handlers in `synthesize_allele_trees` return only the new value, not a new allele.
+- Handlers in `synthesize_allele_trees` return a new allele.
 - When walking trees in parallel, all nodes must be the same type or the walkers will throw. 

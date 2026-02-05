@@ -151,6 +151,63 @@ class AbstractAllele(ABC):
         new_metadata.update(updates)
         return self.with_overrides(metadata=new_metadata)
 
+    def flatten(self) -> "AbstractAllele":
+        """
+        Return a new allele with metadata alleles replaced by their values.
+
+        Flattening simplifies handler logic in tree utilities by hiding recursion.
+        Handlers receive alleles with only raw values in metadata, never nested alleles.
+
+        Raw metadata values (int, float, str, etc.) remain unchanged.
+        Allele values in metadata are replaced with their .value property.
+
+        Returns:
+            New allele instance with flattened metadata
+
+        Example:
+            >>> child = FloatAllele(10.0)
+            >>> parent = FloatAllele(5.0, metadata={"std": child, "rate": 0.1})
+            >>> flat = parent.flatten()
+            >>> flat.metadata["std"]  # 10.0 (raw value, not allele)
+            >>> flat.metadata["rate"]  # 0.1 (unchanged)
+        """
+        flattened_metadata = {}
+        for key, val in self._metadata.items():
+            if isinstance(val, AbstractAllele):
+                flattened_metadata[key] = val.value
+            else:
+                flattened_metadata[key] = val
+        return self.with_metadata(**flattened_metadata)
+
+    def unflatten(self, resolved_metadata: Dict[str, "AbstractAllele"]) -> "AbstractAllele":
+        """
+        Return a new allele with resolved alleles merged back into metadata.
+
+        Unflattening restores tree structure after handlers return. Takes a dict
+        mapping metadata keys to resolved allele objects and replaces flattened
+        values with the actual alleles.
+
+        Keys in resolved_metadata replace corresponding entries in self.metadata.
+        Keys not in resolved_metadata remain unchanged.
+
+        Args:
+            resolved_metadata: Dict mapping metadata keys to resolved Allele objects
+
+        Returns:
+            New allele instance with resolved alleles restored
+
+        Example:
+            >>> flat = FloatAllele(5.0, metadata={"std": 10.0, "rate": 0.1})
+            >>> resolved = {"std": FloatAllele(20.0)}
+            >>> unflat = flat.unflatten(resolved)
+            >>> isinstance(unflat.metadata["std"], FloatAllele)  # True
+            >>> unflat.metadata["std"].value  # 20.0
+            >>> unflat.metadata["rate"]  # 0.1 (unchanged)
+        """
+        merged_metadata = self._metadata.copy()
+        merged_metadata.update(resolved_metadata)
+        return self.with_metadata(**merged_metadata)
+
     def walk_tree(
         self,
         handler: Callable[[List["AbstractAllele"]], Optional[Any]],
@@ -948,23 +1005,9 @@ def _validate_parallel_types(alleles: List[AbstractAllele]) -> None:
         raise TypeError(f"All alleles must be the same type, got: {types}")
 
 
-def _flatten_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Flatten metadata by replacing allele entries with their values.
-
-    Args:
-        metadata: Metadata dict potentially containing alleles
-
-    Returns:
-        Dict with alleles replaced by their .value properties
-    """
-    flattened = {}
-    for key, val in metadata.items():
-        if isinstance(val, AbstractAllele):
-            flattened[key] = val.value
-        else:
-            flattened[key] = val
-    return flattened
+# NOTE: _flatten_metadata() was removed. Use allele.flatten().metadata instead.
+# The flatten() method is now part of the public AbstractAllele API.
+# Migrate callers to use the instance method rather than this private helper.
 
 
 def _should_include_node(

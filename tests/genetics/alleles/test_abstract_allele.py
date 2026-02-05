@@ -399,3 +399,248 @@ class TestAbstractAlleleTreeWalking:
         result = allele.update_tree(lambda nodes: 100, _updater=mock_updater)
 
         assert result is new_allele
+
+
+class TestFlattenUnflatten:
+    """Test suite for flatten() and unflatten() methods."""
+
+    def test_flatten_replaces_allele_with_raw_value(self):
+        """flatten() replaces allele in metadata with its value."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child})
+
+        flat = parent.flatten()
+
+        # Metadata should contain raw value, not allele
+        assert flat.metadata["std"] == 10.0
+        assert not isinstance(flat.metadata["std"], AbstractAllele)
+
+    def test_flatten_preserves_raw_values_unchanged(self):
+        """flatten() leaves raw metadata values unchanged."""
+        parent = SimpleAllele(5.0, metadata={"rate": 0.1, "name": "test"})
+
+        flat = parent.flatten()
+
+        assert flat.metadata["rate"] == 0.1
+        assert flat.metadata["name"] == "test"
+
+    def test_flatten_handles_mixed_metadata(self):
+        """flatten() correctly handles metadata with both alleles and raw values."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child, "rate": 0.1})
+
+        flat = parent.flatten()
+
+        # Allele replaced with value
+        assert flat.metadata["std"] == 10.0
+        assert not isinstance(flat.metadata["std"], AbstractAllele)
+        # Raw value unchanged
+        assert flat.metadata["rate"] == 0.1
+
+    def test_flatten_returns_new_instance(self):
+        """flatten() returns a new allele instance."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child})
+
+        flat = parent.flatten()
+
+        assert flat is not parent
+
+    def test_flatten_preserves_original_unchanged(self):
+        """flatten() does not modify the original allele."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child})
+
+        flat = parent.flatten()
+
+        # Original still has allele in metadata
+        assert isinstance(parent.metadata["std"], AbstractAllele)
+        assert parent.metadata["std"] is child
+
+    def test_flatten_preserves_value(self):
+        """flatten() preserves the allele's value."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child})
+
+        flat = parent.flatten()
+
+        assert flat.value == parent.value
+
+    def test_flatten_preserves_flags(self):
+        """flatten() preserves can_mutate and can_crossbreed flags."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(
+            5.0,
+            can_mutate=False,
+            can_crossbreed=False,
+            metadata={"std": child}
+        )
+
+        flat = parent.flatten()
+
+        assert flat.can_mutate is False
+        assert flat.can_crossbreed is False
+
+    def test_flatten_with_empty_metadata(self):
+        """flatten() works correctly with empty metadata."""
+        allele = SimpleAllele(5.0)
+
+        flat = allele.flatten()
+
+        assert flat.metadata == {}
+
+    def test_flatten_with_nested_alleles(self):
+        """flatten() replaces nested alleles at single level (non-recursive)."""
+        grandchild = SimpleAllele(20.0)
+        child = SimpleAllele(10.0, metadata={"mutation_std": grandchild})
+        parent = SimpleAllele(5.0, metadata={"std": child})
+
+        flat = parent.flatten()
+
+        # Child allele is replaced with its value (which contains nested metadata)
+        assert flat.metadata["std"] == 10.0
+
+    def test_unflatten_restores_alleles(self):
+        """unflatten() replaces flattened values with resolved allele objects."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0, "rate": 0.1})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        # std should now be an allele
+        assert isinstance(unflat.metadata["std"], AbstractAllele)
+        assert unflat.metadata["std"].value == 20.0
+
+    def test_unflatten_preserves_unresolved_keys(self):
+        """unflatten() preserves metadata keys not in resolved_metadata."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0, "rate": 0.1})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        # rate unchanged
+        assert unflat.metadata["rate"] == 0.1
+
+    def test_unflatten_returns_new_instance(self):
+        """unflatten() returns a new allele instance."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        assert unflat is not flat
+
+    def test_unflatten_preserves_original_unchanged(self):
+        """unflatten() does not modify the original allele."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0, "rate": 0.1})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        # Original unchanged
+        assert flat.metadata["std"] == 10.0
+        assert not isinstance(flat.metadata["std"], AbstractAllele)
+
+    def test_unflatten_preserves_value(self):
+        """unflatten() preserves the allele's value."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        assert unflat.value == flat.value
+
+    def test_unflatten_preserves_flags(self):
+        """unflatten() preserves can_mutate and can_crossbreed flags."""
+        flat = SimpleAllele(
+            5.0,
+            can_mutate=False,
+            can_crossbreed=False,
+            metadata={"std": 10.0}
+        )
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        assert unflat.can_mutate is False
+        assert unflat.can_crossbreed is False
+
+    def test_unflatten_with_empty_resolved_metadata(self):
+        """unflatten() with empty resolved_metadata leaves metadata unchanged."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0, "rate": 0.1})
+        resolved = {}
+
+        unflat = flat.unflatten(resolved)
+
+        assert unflat.metadata == flat.metadata
+
+    def test_unflatten_can_add_new_keys(self):
+        """unflatten() can add new metadata keys not present in original."""
+        flat = SimpleAllele(5.0, metadata={"rate": 0.1})
+        resolved = {"std": SimpleAllele(20.0)}
+
+        unflat = flat.unflatten(resolved)
+
+        # New key added
+        assert isinstance(unflat.metadata["std"], AbstractAllele)
+        assert unflat.metadata["std"].value == 20.0
+        # Old key preserved
+        assert unflat.metadata["rate"] == 0.1
+
+    def test_round_trip_preserves_structure(self):
+        """Round-trip flatten -> unflatten preserves allele tree structure."""
+        child = SimpleAllele(10.0)
+        parent = SimpleAllele(5.0, metadata={"std": child, "rate": 0.1})
+
+        # Flatten
+        flat = parent.flatten()
+        assert flat.metadata["std"] == 10.0  # Raw value
+
+        # Prepare resolved metadata (simulate tree synthesis)
+        resolved = {"std": SimpleAllele(10.0)}  # Restore allele
+
+        # Unflatten
+        unflat = flat.unflatten(resolved)
+
+        # Structure preserved
+        assert isinstance(unflat.metadata["std"], AbstractAllele)
+        assert unflat.metadata["std"].value == 10.0
+        assert unflat.metadata["rate"] == 0.1
+
+    def test_flatten_multiple_alleles_in_metadata(self):
+        """flatten() replaces all alleles in metadata with their values."""
+        child1 = SimpleAllele(10.0)
+        child2 = SimpleAllele(20.0)
+        child3 = SimpleAllele(30.0)
+        parent = SimpleAllele(
+            5.0,
+            metadata={"std": child1, "scale": child2, "rate": child3}
+        )
+
+        flat = parent.flatten()
+
+        assert flat.metadata["std"] == 10.0
+        assert flat.metadata["scale"] == 20.0
+        assert flat.metadata["rate"] == 30.0
+        # All should be raw values
+        assert not isinstance(flat.metadata["std"], AbstractAllele)
+        assert not isinstance(flat.metadata["scale"], AbstractAllele)
+        assert not isinstance(flat.metadata["rate"], AbstractAllele)
+
+    def test_unflatten_multiple_alleles(self):
+        """unflatten() restores multiple alleles from resolved_metadata."""
+        flat = SimpleAllele(5.0, metadata={"std": 10.0, "scale": 20.0, "rate": 0.1})
+        resolved = {
+            "std": SimpleAllele(15.0),
+            "scale": SimpleAllele(25.0)
+        }
+
+        unflat = flat.unflatten(resolved)
+
+        # Resolved keys are alleles
+        assert isinstance(unflat.metadata["std"], AbstractAllele)
+        assert unflat.metadata["std"].value == 15.0
+        assert isinstance(unflat.metadata["scale"], AbstractAllele)
+        assert unflat.metadata["scale"].value == 25.0
+        # Unresolved key unchanged
+        assert unflat.metadata["rate"] == 0.1

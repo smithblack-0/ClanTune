@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - BoolAllele: boolean flags with hardcoded {True, False} domain
   - StringAllele: discrete string choices with required domain set
 - Comprehensive black-box test suite for all concrete allele types (54 tests, focusing on type-specific behavior only)
+- AbstractAllele.flatten() and unflatten() methods for metadata flattening/restoration
+- Test suite for flatten/unflatten methods (20 black-box tests)
+
+### Removed
+- Private helper _flatten_metadata() (replaced by public AbstractAllele.flatten() method)
 
 ### Fixed
 - Removed black-box testing violations (schema coupling in serialization tests)

@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added _validate_schemas_match helper function with test suite (5 tests)
   - Updated walk_allele_trees to use flatten() method
   - Updated 12 tests to match new contracts
+- Rebuilt walk_tree and update_tree instance methods to match specification (Allele.md lines 121-136)
+  - walk_tree handler now receives single allele (was: list of alleles)
+  - update_tree handler now receives single allele, returns allele (was: list → value)
+  - Both methods adapt user handler to underlying utility API
+  - Updated 4 tests to match new handler signatures
 - Removed black-box testing violations (schema coupling in serialization tests)
 - Test fixtures now use public properties instead of private fields
 - Replaced registry inspection tests with behavior-based round-trip tests

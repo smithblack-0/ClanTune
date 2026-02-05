@@ -306,9 +306,9 @@ class TestInstanceMethodWrappers:
 
         values = []
 
-        def handler(nodes):
-            values.append(nodes[0].value)
-            return nodes[0].value
+        def handler(node):
+            values.append(node.value)
+            return node.value
 
         results = list(allele.walk_tree(handler))
 
@@ -319,8 +319,8 @@ class TestInstanceMethodWrappers:
         """update_tree is thin wrapper around synthesize_allele_trees."""
         allele = FloatAllele(5.0, metadata={"child": FloatAllele(10.0)})
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(node):
+            return node.with_value(node.value * 2)
 
         result = allele.update_tree(handler)
 
@@ -333,8 +333,8 @@ class TestInstanceMethodWrappers:
 
         visited = []
 
-        def handler(nodes):
-            visited.append(nodes[0].value)
+        def handler(node):
+            visited.append(node.value)
             return None
 
         list(allele.walk_tree(handler, include_can_mutate=False))
@@ -345,8 +345,8 @@ class TestInstanceMethodWrappers:
         """update_tree passes filtering flags through."""
         allele = FloatAllele(5.0, can_mutate=False)
 
-        def handler(nodes):
-            return nodes[0].value * 2
+        def handler(node):
+            return node.with_value(node.value * 2)
 
         result = allele.update_tree(handler, include_can_mutate=False)
 

@@ -210,56 +210,76 @@ class AbstractAllele(ABC):
 
     def walk_tree(
         self,
-        handler: Callable[[List["AbstractAllele"]], Optional[Any]],
+        handler: Callable[["AbstractAllele"], Optional[Any]],
         include_can_mutate: bool = True,
         include_can_crossbreed: bool = True,
-        _walker: Optional[Callable] = None,
     ) -> Generator[Any, None, None]:
         """
         Walk this allele's tree and yield results.
 
-        Thin wrapper around walk_allele_trees for single-tree use.
+        Convenience wrapper around walk_allele_trees for single-tree operations.
+        Adapts handler signature from single allele to list-based API.
 
         Args:
-            handler: Function receiving list of flattened alleles
+            handler: Function receiving single flattened allele, returns Optional[Any]
             include_can_mutate: If False, skip nodes with can_mutate=False
             include_can_crossbreed: If False, skip nodes with can_crossbreed=False
 
         Yields:
             Values returned by handler (if not None)
+
+        Example:
+            >>> def collect_values(node):
+            ...     return node.value
+            >>> values = list(allele.walk_tree(collect_values))
         """
-        walker = _walker if _walker is not None else walk_allele_trees
-        yield from walker(
+        # Adapt handler: user receives single allele, walk_allele_trees expects list
+        def adapted_handler(alleles: List["AbstractAllele"]) -> Optional[Any]:
+            return handler(alleles[0])
+
+        yield from walk_allele_trees(
             [self],
-            handler,
+            adapted_handler,
             include_can_mutate=include_can_mutate,
             include_can_crossbreed=include_can_crossbreed,
         )
 
     def update_tree(
         self,
-        handler: Callable[[List["AbstractAllele"]], Any],
+        handler: Callable[["AbstractAllele"], "AbstractAllele"],
         include_can_mutate: bool = True,
         include_can_crossbreed: bool = True,
-        _updater: Optional[Callable] = None,
     ) -> "AbstractAllele":
         """
         Transform this allele's tree.
 
-        Thin wrapper around synthesize_allele_trees for single-tree use.
+        Convenience wrapper around synthesize_allele_trees for single-tree operations.
+        Adapts handler signature from single allele to (template, sources) API.
+        Automatically uses self as template_tree.
 
         Args:
-            handler: Function receiving list of flattened alleles and returning new value
+            handler: Function receiving single allele, returns new allele
             include_can_mutate: If False, skip nodes with can_mutate=False
             include_can_crossbreed: If False, skip nodes with can_crossbreed=False
 
         Returns:
-            New tree with updated values
+            New tree with transformed values
+
+        Example:
+            >>> def double(node):
+            ...     return node.with_value(node.value * 2)
+            >>> doubled = allele.update_tree(double)
         """
-        updater = _updater if _updater is not None else synthesize_allele_trees
-        return updater(
+        # Adapt handler: user receives single allele, synthesize expects (template, sources)
+        def adapted_handler(
+            template: "AbstractAllele", sources: List["AbstractAllele"]
+        ) -> "AbstractAllele":
+            return handler(template)
+
+        return synthesize_allele_trees(
+            self,
             [self],
-            handler,
+            adapted_handler,
             include_can_mutate=include_can_mutate,
             include_can_crossbreed=include_can_crossbreed,
         )

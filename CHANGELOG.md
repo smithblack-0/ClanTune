@@ -38,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - walk_tree handler now receives single allele (was: list of alleles)
   - update_tree handler now receives single allele, returns allele (was: list → value)
   - Both methods adapt user handler to underlying utility API
-  - Updated 4 tests to match new handler signatures
+  - Re-added _walker and _updater test injection parameters
+  - Updated 7 tests to match new handler signatures (4 in test_tree_walking.py, 3 in test_abstract_allele.py)
+- Removed obsolete TestFlattenMetadata test class (6 tests for deleted _flatten_metadata helper)
 - Removed black-box testing violations (schema coupling in serialization tests)
 - Test fixtures now use public properties instead of private fields
 - Replaced registry inspection tests with behavior-based round-trip tests

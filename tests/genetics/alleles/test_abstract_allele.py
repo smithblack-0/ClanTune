@@ -312,16 +312,18 @@ class TestAbstractAlleleTreeWalking:
         assert call_args[0][0] == [allele]
 
     def test_walk_tree_passes_handler_to_walker(self):
-        """walk_tree passes handler function to walker."""
+        """walk_tree passes adapted handler to walker."""
         allele = SimpleAllele(42)
         mock_walker = Mock(return_value=iter([]))
-        handler = lambda nodes: "test"
+        handler = lambda node: "test"
 
         list(allele.walk_tree(handler, _walker=mock_walker))
 
-        # Verify handler passed through
+        # Verify adapted handler passed (not original - it wraps it)
         call_args = mock_walker.call_args
-        assert call_args[0][1] is handler
+        adapted_handler = call_args[0][1]
+        # Verify adapter works: calls user handler with single allele
+        assert adapted_handler([allele]) == "test"
 
     def test_walk_tree_passes_flags_to_walker(self):
         """walk_tree passes include flags to walker."""
@@ -350,28 +352,32 @@ class TestAbstractAlleleTreeWalking:
         assert results == [1, 2, 3]
 
     def test_update_tree_wraps_self_in_list(self):
-        """update_tree wraps self in list when calling updater function."""
+        """update_tree calls updater with self as template_tree and [self] as sources."""
         allele = SimpleAllele(42)
         mock_updater = Mock(return_value=SimpleAllele(100))
-        handler = lambda nodes: 100
+        handler = lambda node: node
 
         allele.update_tree(handler, _updater=mock_updater)
 
-        # Verify updater called with self wrapped in list
+        # Verify updater called with (template_tree, sources, ...)
         call_args = mock_updater.call_args
-        assert call_args[0][0] == [allele]
+        assert call_args[0][0] is allele  # template_tree is self
+        assert call_args[0][1] == [allele]  # sources is [self]
 
     def test_update_tree_passes_handler_to_updater(self):
-        """update_tree passes handler function to updater."""
+        """update_tree passes adapted handler to updater."""
         allele = SimpleAllele(42)
-        mock_updater = Mock(return_value=SimpleAllele(100))
-        handler = lambda nodes: 100
+        result_allele = SimpleAllele(100)
+        mock_updater = Mock(return_value=result_allele)
+        handler = lambda node: result_allele
 
         allele.update_tree(handler, _updater=mock_updater)
 
-        # Verify handler passed through
+        # Verify adapted handler passed (not original - it wraps it)
         call_args = mock_updater.call_args
-        assert call_args[0][1] is handler
+        adapted_handler = call_args[0][2]  # Third positional arg
+        # Verify adapter works: calls user handler with template only
+        assert adapted_handler(allele, [allele]) is result_allele
 
     def test_update_tree_passes_flags_to_updater(self):
         """update_tree passes include flags to updater."""

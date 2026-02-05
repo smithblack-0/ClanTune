@@ -53,66 +53,6 @@ class TestValidateParallelTypes:
         _validate_parallel_types([])  # Should not raise
 
 
-class TestFlattenMetadata:
-    """Test suite for _flatten_metadata helper."""
-
-    def test_flattens_allele_to_value(self):
-        """Alleles in metadata replaced with their .value property."""
-        child = FloatAllele(10.0)
-        metadata = {"std": child}
-
-        result = _flatten_metadata(metadata)
-
-        assert result["std"] == 10.0
-        assert not isinstance(result["std"], FloatAllele)
-
-    def test_preserves_raw_values(self):
-        """Raw values in metadata are preserved unchanged."""
-        metadata = {"raw_int": 42, "raw_str": "test", "raw_float": 3.14}
-
-        result = _flatten_metadata(metadata)
-
-        assert result["raw_int"] == 42
-        assert result["raw_str"] == "test"
-        assert result["raw_float"] == 3.14
-
-    def test_handles_mixed_metadata(self):
-        """Correctly handles metadata with both alleles and raw values."""
-        child = FloatAllele(10.0)
-        metadata = {"allele": child, "raw": 99}
-
-        result = _flatten_metadata(metadata)
-
-        assert result["allele"] == 10.0
-        assert result["raw"] == 99
-
-    def test_flattens_multiple_alleles(self):
-        """Multiple alleles in metadata all flattened."""
-        child1 = FloatAllele(10.0)
-        child2 = IntAllele(20)
-        metadata = {"std": child1, "rate": child2}
-
-        result = _flatten_metadata(metadata)
-
-        assert result["std"] == 10.0
-        assert result["rate"] == 20
-
-    def test_returns_new_dict(self):
-        """Returns a new dict, doesn't modify original."""
-        child = FloatAllele(10.0)
-        original = {"std": child}
-
-        result = _flatten_metadata(original)
-
-        assert result is not original
-        assert isinstance(original["std"], FloatAllele)  # Original unchanged
-
-    def test_handles_empty_metadata(self):
-        """Empty metadata returns empty dict."""
-        result = _flatten_metadata({})
-        assert result == {}
-
-
 class TestShouldIncludeNode:
     """Test suite for _should_include_node helper."""
 

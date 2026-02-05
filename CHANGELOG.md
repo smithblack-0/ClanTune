@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-05
+
 ### Added
 - AbstractAllele base class with registry-based serialization dispatch
 - Comprehensive test suite for AbstractAllele (38 black-box tests)

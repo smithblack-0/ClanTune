@@ -406,6 +406,71 @@ class TestAbstractAlleleTreeWalking:
 
         assert result is new_allele
 
+    def test_synthesize_tree_passes_template_tree_to_synthesizer(self):
+        """synthesize_tree calls synthesizer with self as template_tree."""
+        allele = SimpleAllele(42)
+        other = SimpleAllele(100)
+        result_allele = SimpleAllele(7)
+        mock_synthesizer = Mock(return_value=result_allele)
+
+        def handler(template, sources):
+            return template
+
+        allele.synthesize_tree([allele, other], handler, _synthesizer=mock_synthesizer)
+
+        call_args = mock_synthesizer.call_args
+        assert call_args[0][0] is allele
+        assert call_args[0][1] == [allele, other]
+
+
+    def test_synthesize_tree_passes_handler_to_synthesizer(self):
+        """synthesize_tree passes handler through to synthesizer."""
+        allele = SimpleAllele(42)
+        mock_synthesizer = Mock(return_value=SimpleAllele(7))
+
+        def handler(template, sources):
+            return template
+
+        allele.synthesize_tree([allele], handler, _synthesizer=mock_synthesizer)
+
+        call_args = mock_synthesizer.call_args
+        assert call_args[0][2] is handler
+
+
+    def test_synthesize_tree_passes_flags_to_synthesizer(self):
+        """synthesize_tree passes include flags to synthesizer."""
+        allele = SimpleAllele(42)
+        mock_synthesizer = Mock(return_value=SimpleAllele(7))
+
+        def handler(template, sources):
+            return template
+
+        allele.synthesize_tree(
+            [allele],
+            handler,
+            include_can_mutate=False,
+            include_can_crossbreed=False,
+            _synthesizer=mock_synthesizer,
+        )
+
+        call_args = mock_synthesizer.call_args
+        assert call_args[1]["include_can_mutate"] is False
+        assert call_args[1]["include_can_crossbreed"] is False
+
+
+    def test_synthesize_tree_returns_synthesizer_result(self):
+        """synthesize_tree returns result from synthesizer function."""
+        allele = SimpleAllele(42)
+        result_allele = SimpleAllele(7)
+        mock_synthesizer = Mock(return_value=result_allele)
+
+        def handler(template, sources):
+            return template
+
+        result = allele.synthesize_tree([allele], handler, _synthesizer=mock_synthesizer)
+
+        assert result is result_allele
+
 
 class TestFlattenUnflatten:
     """Test suite for flatten() and unflatten() methods."""

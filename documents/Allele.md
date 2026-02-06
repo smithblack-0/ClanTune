@@ -1,5 +1,14 @@
 # Allele Spec
 
+## Note
+
+Allele was originally constructed with the idea of storing raw metadata in mind. 
+That is no longer intended. Now, metadata should only be allele.
+
+Eventually, we will get around to rebuilding the data structure and tests to reflect this
+
+TODO.
+
 ## Overview
 
 An allele is an immutable data container representing a single evolvable parameter. Alleles form trees via their metadata — metadata can contain other alleles, which themselves have metadata. This recursive structure enables metalearning: mutation parameters evolve under selection pressure alongside the values they control.
@@ -16,7 +25,6 @@ Every allele has five fields:
 **`domain: Dict`** — constraints on valid values (min/max bounds or discrete choices). Exact details will follow.
 **`can_mutate: bool`** — signals whether this allele's value should participate in mutation. This is signaling only — the allele does not enforce it. Utilities and strategies should be setup to respect it
 **`can_crossbreed: bool`** — signals whether this allele's value should participate in crossbreeding. Signaling only, not enforced by the allele.
-
 **`metadata: Dict[str, Any]`** — recursive tree. Values can be alleles (which recurse) or raw values (which don't).
 
 ## Core Methods
@@ -27,6 +35,7 @@ Every allele has five fields:
 **`unflatten(resolved_metadata: Dict[str, Allele]) -> Allele`** — returns a new allele with metadata alleles restored from resolved_metadata dict. Replaces flattened values with actual allele objects. Used by tree synthesis to re-inject resolved children after handler returns.
 **`walk_tree(handler) -> Generatort[Any, None, None]`** — walks this allele's tree and yields results. Thin wrapper around `walk_allele_trees` for single-tree use.
 **`update_tree(handler) -> Allele`** — transforms this allele's tree. Thin wrapper around `synthesize_allele_trees` for single-tree use. Returns a new tree with the updates
+**`synthesize_tree(alleles: List[Allele], handler) -> Allele`** — synthesizes a single result tree from `alleles` using `self` as the template tree. Thin wrapper around `synthesize_allele_trees` that autofills template with self; often useful given usually you are trying to update a specific genome.
 **`serialize() -> Dict`** — converts to dict, including recursive serialization of metadata alleles.
 **`deserialize(data) -> Allele`** (classmethod) — reconstructs from dict, including recursive deserialization.
 ** Others: Concrete types can add their own methods.

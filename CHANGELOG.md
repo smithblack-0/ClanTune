@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Genetics lifecycle vision document (documents/genetics_lifecycle.md) describing system architecture, component responsibilities, and evolution flow
+
 ## [0.2.0] - 2026-02-05
 
 ### Added

@@ -288,6 +288,40 @@ class AbstractAllele(ABC):
             include_can_crossbreed=include_can_crossbreed,
         )
 
+    def synthesize_tree(
+            self,
+            alleles: List["AbstractAllele"],
+            handler: Callable[["AbstractAllele", List["AbstractAllele"]], "AbstractAllele"],
+            include_can_mutate: bool = True,
+            include_can_crossbreed: bool = True,
+            _synthesizer: Optional[Callable] = None,
+    ) -> "AbstractAllele":
+        """
+        Synthesize multiple allele trees into a single result tree.
+
+        Convenience wrapper around synthesize_allele_trees using self as
+        template_tree.
+
+        Args:
+            alleles: List of source allele trees to synthesize from
+            handler: Function receiving (template, sources) and returning new allele
+            include_can_mutate: If False, skip nodes with can_mutate=False
+            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+
+        Returns:
+            New synthesized tree with self's structure and handler-computed values
+        """
+        synthesizer = (
+            _synthesizer if _synthesizer is not None else synthesize_allele_trees
+        )
+        return synthesizer(
+            self,
+            alleles,
+            handler,
+            include_can_mutate=include_can_mutate,
+            include_can_crossbreed=include_can_crossbreed,
+        )
+
     def serialize(self) -> Dict[str, Any]:
         """
         Convert to dict, including recursive metadata serialization.

@@ -39,6 +39,7 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 
 - documents/Allele.md - allele design and mutation behavior
 - documents/expression.md - how genomes express into training hyperparameters
+- documents/genetics_lifecycle.md - system architecture, component responsibilities, and evolution flow
 - documents/individual.md - clan member (individual) structure and state
 - documents/state.md - state management and serialization
 - documents/tree_utiliities.md - utilities for working with parameter trees

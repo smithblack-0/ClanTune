@@ -104,7 +104,6 @@ Tree walking and synthesizing utilities exist as well, to walk collection of all
 - Frontend access methods (add_hyperparameter, as_hyperparameters, etc.).
 - Handle serialization/deserialization of genomes, genome fields, and thus also alleles
 - Thin wrappers into module utilities on methods. 
-- Easy rebuilding methods that let you change just the constructor arguments you want. 
 
 **Utilities (module-level functions):**
 

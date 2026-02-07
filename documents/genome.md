@@ -47,7 +47,7 @@ The Genome object has two notable modes of operation. One is intended to be inte
 * **`with_alleles(alleles: Dict[str, AbstractAllele]) -> Genome`** — reconstructs genome with a new allele package. 
 * **`with_ancestry(parents: List[Tuple[float, UUID]]) -> Genome`** — reconstructs genome with a new ancestry package.
 * **`update_alleles(handler: Callable[[AbstractAllele], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]]) -> Genome`** — walks alleles, applies handler to each, returns new genome with transformed alleles. Used for mutation and setup patterns. Anything that does not pass filtration is skipped. 
-* **`synthesize_new_alleles(population: List[Genome], handler: Callable[[AbstractAllele, List[AbstractAllele], ...], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]]) -> Genome`** — walks alleles across self and population in parallel, applies handler receiving (self_allele, population_alleles, ancestry), returns new genome with synthesized alleles. Uses self as template and self.parents as ancestry. Used for crossbreeding pattern.
+* **`synthesize_new_alleles(population: List[Genome], handler: Callable[[AbstractAllele, List[AbstractAllele], ...], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]]) -> Genome`** — walks alleles across self and population in parallel, applies handler receiving (self_allele, population_alleles, kwargs), returns new genome with synthesized alleles. Uses self as template and self.parents as ancestry. Used for crossbreeding pattern.
 
 **Serialization:**
 

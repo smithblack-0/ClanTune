@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test suite for Genome serialization (15 tests)
 - Test suite for Genome module utilities (23 tests)
 - Test suite for Genome strategy support methods (26 tests)
+- Test suite for Genome integration tests (14 tests covering multi-hyperparameter, nested alleles, error handling, workflows)
 
 ### Changed
 - Migrated tree walking utilities from boolean flags to predicate-based filtration

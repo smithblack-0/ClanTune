@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Genetics lifecycle vision document (documents/genetics_lifecycle.md) describing system architecture, component responsibilities, and evolution flow
 - AbstractAllele.synthesize_trees() method as thin wrapper for synthesize_allele_trees utility
+- CanMutateFilter and CanCrossbreedFilter callable predicate classes for tree filtration
+- Test suites for CanMutateFilter and CanCrossbreedFilter (14 tests)
+
+### Changed
+- Migrated tree walking utilities from boolean flags to predicate-based filtration
+- walk_allele_trees and synthesize_allele_trees now accept predicate parameter instead of include_can_mutate/include_can_crossbreed
+
+### Removed
+- _should_include_node helper function (replaced by filter classes)
+- Boolean flag parameters from tree walking utilities
 
 ## [0.2.0] - 2026-02-05
 

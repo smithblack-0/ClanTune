@@ -206,45 +206,68 @@ Since they are so common, you may add properties to a class so long as you updat
 
 ## Safe Commit Squashing
 
-**Principle**: Use additive operations (creating new commits) rather than destructive operations (rewriting history). Never risk uncommitted work.
+**Principle**: Use `git rebase -i` for squashing with a clean working directory. Never use history-rewriting commands autonomously.
 
-### The Safe Way: Merge --squash
+### CRITICAL: Permission Required for History Rewriting
 
-When squashing commits into logical units, use `git merge --squash` or create new commits rather than rewriting history:
+**You are FORBIDDEN from using these commands autonomously:**
+- `git reset` (any mode: --soft, --mixed, --hard)
+- `git rebase` (interactive or otherwise)
+- `git commit --amend`
+- `git filter-branch`
+- `git push --force`
+- Any command that moves HEAD backward/forward and triggers repo rebuild
 
-**Method 1: Create new squashed commit on a branch**
+**You MUST ask for explicit user permission before using any of these commands.** Explain what you want to do and why, then wait for approval.
+
+### The Correct Way: Interactive Rebase
+
+When the user approves squashing commits, use `git rebase -i`:
+
+**How it works:**
+1. Git shows you a list of commits
+2. You mark which to keep ("pick") and which to merge ("squash")
+3. Git replays them, combining where you marked "squash"
+4. Commits marked "pick" stay separate automatically
+
+**Example: Squash 4 commits, keep 2 separate**
 ```bash
-# User approves squashing commits A, B, C, D into one
-git checkout -b squashed-feature
-git reset --soft <commit-before-A>
-git commit -m "Squashed: Feature description"
-# Now you have both histories - choose which to keep
+# Current history: commits A, B, C, D (squash these), then E, F (keep separate)
+git rebase -i <commit-before-A>
+
+# In the editor, mark commits:
+pick A      # Keep this one
+squash B    # Merge into A
+squash C    # Merge into A
+squash D    # Merge into A
+pick E      # Keep separate
+pick F      # Keep separate
+
+# Result: [A+B+C+D combined], E, F
+# The commits on top (E, F) automatically stay separate
 ```
 
-**Method 2: Merge --squash (even safer)**
-```bash
-# From main branch, after commits A, B, C, D
-git checkout -b feature-squashed <commit-before-A>
-git merge --squash main
-git commit -m "Feature description"
-# Original commits preserved, new clean branch created
-```
+**Requirements before rebasing:**
+1. `git status` must be clean (no uncommitted work)
+2. If uncommitted work exists, user must handle it first
+3. Get explicit user permission before running the command
 
 ### What NOT to Do
 
-❌ **NEVER use `git reset` when uncommitted work exists**
-- Resets can affect working directory and staging area
-- Risk of losing untracked or unstaged files
-- Hard to undo if something goes wrong
+❌ **NEVER use `git reset` autonomously**
+- Requires explicit user permission
+- Can only be used with clean working directory
+- Must explain what you're doing and why first
 
-❌ **NEVER use `git rebase -i` without protecting uncommitted work**
-- Rebase rewrites history and can conflict with uncommitted changes
-- Requires stashing, which can fail or be incomplete
+❌ **NEVER use `git rebase` autonomously**
+- Requires explicit user permission
+- Can only be used with clean working directory
+- Must explain what you're doing and why first
 
-❌ **NEVER use `git stash` as a safety mechanism**
+❌ **NEVER use `git stash` to protect uncommitted work before history operations**
 - Stashes can fail silently for untracked files
 - Easy to forget what's in a stash
-- Not a substitute for proper backups
+- If uncommitted work exists, user must handle it themselves
 
 ### Protecting Uncommitted Work
 

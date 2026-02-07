@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Genome class foundation (src/clan_tune/genetics/genome.py) with string-based type dispatch
 - Genome orchestrator methods: add_hyperparameter, as_hyperparameters, set_fitness, get_fitness
 - Genome core methods: with_overrides for rebuilding with preserved fields
+- Genome serialization/deserialization with recursive allele handling
 - Test suite for Genome construction and orchestrator methods (32 tests)
+- Test suite for Genome serialization (15 tests)
 
 ### Changed
 - Migrated tree walking utilities from boolean flags to predicate-based filtration

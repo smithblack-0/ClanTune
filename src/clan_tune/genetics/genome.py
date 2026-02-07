@@ -198,3 +198,65 @@ class Genome:
             Fitness value, or None if not yet assigned
         """
         return self._fitness
+
+    # Serialization methods
+
+    def serialize(self) -> Dict[str, Any]:
+        """
+        Convert genome to dict, including recursive allele serialization.
+
+        Returns:
+            Dict with "uuid", "alleles", "parents", "fitness" fields.
+            Alleles are recursively serialized via allele.serialize().
+            UUIDs are converted to strings for JSON compatibility.
+        """
+        # Serialize alleles dict (recursive via allele.serialize())
+        serialized_alleles = {
+            name: allele.serialize() for name, allele in self._alleles.items()
+        }
+
+        # Serialize parents (convert UUIDs to strings)
+        serialized_parents = None
+        if self._parents is not None:
+            serialized_parents = [
+                (probability, str(uuid)) for probability, uuid in self._parents
+            ]
+
+        return {
+            "uuid": str(self._uuid),
+            "alleles": serialized_alleles,
+            "parents": serialized_parents,
+            "fitness": self._fitness,
+        }
+
+    @classmethod
+    def deserialize(cls, data: Dict[str, Any]) -> "Genome":
+        """
+        Reconstruct genome from serialized dict.
+
+        Args:
+            data: Dict from serialize() containing "uuid", "alleles", "parents", "fitness"
+
+        Returns:
+            Reconstructed Genome instance with exact state from serialization
+        """
+        # Deserialize UUID
+        uuid = UUID(data["uuid"])
+
+        # Deserialize alleles (recursive via AbstractAllele.deserialize())
+        alleles = {
+            name: AbstractAllele.deserialize(allele_data)
+            for name, allele_data in data["alleles"].items()
+        }
+
+        # Deserialize parents (convert UUID strings back to UUIDs)
+        parents = None
+        if data["parents"] is not None:
+            parents = [
+                (probability, UUID(uuid_str))
+                for probability, uuid_str in data["parents"]
+            ]
+
+        fitness = data["fitness"]
+
+        return cls(uuid=uuid, alleles=alleles, parents=parents, fitness=fitness)

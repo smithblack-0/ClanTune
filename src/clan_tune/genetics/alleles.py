@@ -211,20 +211,20 @@ class AbstractAllele(ABC):
     def walk_tree(
         self,
         handler: Callable[["AbstractAllele"], Optional[Any]],
-        include_can_mutate: bool = True,
-        include_can_crossbreed: bool = True,
+        predicate: Optional[Callable[["AbstractAllele"], bool]] = None,
         _walker: Optional[Callable] = None,
     ) -> Generator[Any, None, None]:
         """
         Walk this allele's tree and yield results.
 
         Convenience wrapper around walk_allele_trees for single-tree operations.
-        Adapts handler signature from single allele to list-based API.
+        Adapts handler signature from single allele to list-based API. Predicate
+        will be invoked against all nodes at a tree level and must all pass for
+        handler to trigger.
 
         Args:
             handler: Function receiving single flattened allele, returns Optional[Any]
-            include_can_mutate: If False, skip nodes with can_mutate=False
-            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+            predicate: Whether to walk a node. Any entry being false skips. Optional.
 
         Yields:
             Values returned by handler (if not None)
@@ -242,15 +242,13 @@ class AbstractAllele(ABC):
         yield from walker(
             [self],
             adapted_handler,
-            include_can_mutate=include_can_mutate,
-            include_can_crossbreed=include_can_crossbreed,
+            predicate
         )
 
     def update_tree(
         self,
         handler: Callable[["AbstractAllele"], "AbstractAllele"],
-        include_can_mutate: bool = True,
-        include_can_crossbreed: bool = True,
+        predicate: Optional[Callable[["AbstractAllele"], bool]] = None,
         _updater: Optional[Callable] = None,
     ) -> "AbstractAllele":
         """
@@ -258,12 +256,13 @@ class AbstractAllele(ABC):
 
         Convenience wrapper around synthesize_allele_trees for single-tree operations.
         Adapts handler signature from single allele to (template, sources) API.
-        Automatically uses self as template_tree.
+        Automatically uses self as template_tree. Predicate must return true
+        if provided or hhandler does not trigger. If handler does not trigger, self node at this
+        location has its value used in the new allele.
 
         Args:
             handler: Function receiving single allele, returns new allele
-            include_can_mutate: If False, skip nodes with can_mutate=False
-            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+            predicate: Takes a node, tells us whether we want to trigger handler on it.
 
         Returns:
             New tree with transformed values
@@ -284,16 +283,14 @@ class AbstractAllele(ABC):
             self,
             [self],
             adapted_handler,
-            include_can_mutate=include_can_mutate,
-            include_can_crossbreed=include_can_crossbreed,
+            predicate
         )
 
     def synthesize_tree(
             self,
             alleles: List["AbstractAllele"],
             handler: Callable[["AbstractAllele", List["AbstractAllele"]], "AbstractAllele"],
-            include_can_mutate: bool = True,
-            include_can_crossbreed: bool = True,
+            predicate: Optional[Callable[["AbstractAllele"], bool]] = None,
             _synthesizer: Optional[Callable] = None,
     ) -> "AbstractAllele":
         """
@@ -305,9 +302,7 @@ class AbstractAllele(ABC):
         Args:
             alleles: List of source allele trees to synthesize from
             handler: Function receiving (template, sources) and returning new allele
-            include_can_mutate: If False, skip nodes with can_mutate=False
-            include_can_crossbreed: If False, skip nodes with can_crossbreed=False
-
+            predicate: The predicate that must pass for handler to trigger
         Returns:
             New synthesized tree with self's structure and handler-computed values
         """
@@ -318,8 +313,7 @@ class AbstractAllele(ABC):
             self,
             alleles,
             handler,
-            include_can_mutate=include_can_mutate,
-            include_can_crossbreed=include_can_crossbreed,
+            predicate
         )
 
     def serialize(self) -> Dict[str, Any]:
@@ -1094,27 +1088,6 @@ def _validate_schemas_match(alleles: List[AbstractAllele]) -> None:
         raise ValueError(f"can_crossbreed mismatch across sources: {flags}")
 
 
-def _should_include_node(
-    allele: AbstractAllele, include_can_mutate: bool, include_can_crossbreed: bool
-) -> bool:
-    """
-    Determine if a node should be included based on filtering flags.
-
-    Args:
-        allele: The allele to check
-        include_can_mutate: If False, exclude nodes with can_mutate=False
-        include_can_crossbreed: If False, exclude nodes with can_crossbreed=False
-
-    Returns:
-        True if node should be included, False otherwise
-    """
-    if not include_can_mutate and not allele.can_mutate:
-        return False
-    if not include_can_crossbreed and not allele.can_crossbreed:
-        return False
-    return True
-
-
 def _collect_metadata_keys(alleles: List[AbstractAllele]) -> List[str]:
     """
     Collect all unique metadata keys across multiple alleles in sorted order.
@@ -1137,15 +1110,14 @@ def _collect_metadata_keys(alleles: List[AbstractAllele]) -> List[str]:
 def walk_allele_trees(
     alleles: List[AbstractAllele],
     handler: Callable[[List[AbstractAllele]], Optional[Any]],
-    include_can_mutate: bool = True,
-    include_can_crossbreed: bool = True,
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
 ) -> Generator[Any, None, None]:
     """
     Walk multiple allele trees in parallel (depth-first, children-first).
 
     At each node:
     1. Recursively processes all metadata alleles first
-    2. Checks filter (can_mutate/can_crossbreed) - skips if filtered out
+    2. Checks predicate, and skip if filtered out.
     3. Flattens metadata: replaces allele entries with .value, leaves raw values unchanged
     4. Passes list of flattened alleles to handler
     5. If handler returns non-None, yields it
@@ -1153,8 +1125,8 @@ def walk_allele_trees(
     Args:
         alleles: List of allele trees to walk in parallel
         handler: Function receiving list of flattened alleles, returns Optional[Any]
-        include_can_mutate: If False, skip nodes with can_mutate=False
-        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+        predicate: Function accepting a node and returning true or false, indicating
+        whether to process it.
 
     Yields:
         Non-None values returned by handler
@@ -1164,6 +1136,8 @@ def walk_allele_trees(
     """
     # Validate type consistency
     _validate_parallel_types(alleles)
+    if predicate is None:
+        predicate = lambda node : True
 
     # Recursively walk all metadata alleles first (children-first)
     for key in _collect_metadata_keys(alleles):
@@ -1177,12 +1151,11 @@ def walk_allele_trees(
         yield from walk_allele_trees(
             subtrees,
             handler,
-            include_can_mutate=include_can_mutate,
-            include_can_crossbreed=include_can_crossbreed,
+            predicate
         )
 
     # Apply filter to current node
-    if not _should_include_node(alleles[0], include_can_mutate, include_can_crossbreed):
+    if not all(predicate(allele) for allele in alleles):
         return
 
     # Flatten metadata for handler
@@ -1198,21 +1171,20 @@ def _synthesize_allele_trees_impl(
     template_idx: int,
     nodes: List[Union[AbstractAllele, Any]],
     handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
-    include_can_mutate: bool,
-    include_can_crossbreed: bool,
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
 ) -> Union[AbstractAllele, Any]:
     """
     Inner helper for synthesize_allele_trees.
 
     Handles recursion with template index preservation. Accepts both alleles and raw values,
-    using base case check to terminate recursion.
+    using base case check to terminate recursion. Predicate decides whether to apply
+    handler based on template.
 
     Args:
         template_idx: Index of template node in nodes list
         nodes: List of nodes (alleles or raw values) to synthesize
         handler: Function receiving (template, sources) and returning new allele
-        include_can_mutate: If False, skip nodes with can_mutate=False
-        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+        predicate: The predicate handler
 
     Returns:
         Synthesized allele or validated raw value
@@ -1244,8 +1216,7 @@ def _synthesize_allele_trees_impl(
             template_idx,
             values,
             handler,
-            include_can_mutate,
-            include_can_crossbreed,
+            predicate,
         )
 
     # Create template: source node at template position with resolved metadata
@@ -1253,7 +1224,7 @@ def _synthesize_allele_trees_impl(
     template = template_source.with_metadata(**resolved_metadata)
 
     # Check filtering: if excluded, return template (skip handler)
-    if not _should_include_node(template, include_can_mutate, include_can_crossbreed):
+    if not predicate(template):
         return template
 
     # Flatten template and sources for handler
@@ -1271,8 +1242,7 @@ def synthesize_allele_trees(
     template_tree: AbstractAllele,
     alleles: List[AbstractAllele],
     handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
-    include_can_mutate: bool = True,
-    include_can_crossbreed: bool = True,
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
 ) -> AbstractAllele:
     """
     Synthesize multiple allele trees into a single result tree.
@@ -1300,8 +1270,8 @@ def synthesize_allele_trees(
         template_tree: Source allele whose structure to use (must be in alleles list)
         alleles: List of source allele trees to synthesize from
         handler: Function receiving (template, sources) and returning new allele
-        include_can_mutate: If False, skip nodes with can_mutate=False
-        include_can_crossbreed: If False, skip nodes with can_crossbreed=False
+        predicate: Provided the template node. A return of true applies the handler.
+            false causes the node to be rebuilt using the template value instead.
 
     Returns:
         New synthesized tree with template structure and handler-computed values
@@ -1325,7 +1295,49 @@ def synthesize_allele_trees(
     except ValueError:
         raise ValueError("template_tree must be present in alleles list")
 
+    if predicate is None:
+        predicate = lambda node : True
+
     # Call inner helper with template index
     return _synthesize_allele_trees_impl(
-        template_idx, alleles, handler, include_can_mutate, include_can_crossbreed
+        template_idx, alleles, handler, predicate
     )
+
+class CanMutateFilter:
+    """
+    Callable predicate object for filtering allele nodes by can_mutate status.
+
+    Construct with a desired state, then call on a node:
+        pred = can_mutate_filter(True)
+        pred(node) -> bool
+    """
+
+    def __init__(self, state: bool):
+        """
+        Args:
+            state: Desired can_mutate state to match.
+        """
+        self.state = state
+
+    def __call__(self, node: AbstractAllele) -> bool:
+        return node.can_mutate == self.state
+
+
+class CanCrossbreedFilter:
+    """
+    Callable predicate object for filtering allele nodes by can_crossbreed status.
+
+    Construct with a desired state, then call on a node:
+        pred = can_crossbreed_filter(False)
+        pred(node) -> bool
+    """
+
+    def __init__(self, state: bool):
+        """
+        Args:
+            state: Desired can_crossbreed state to match.
+        """
+        self.state = state
+
+    def __call__(self, node: AbstractAllele) -> bool:
+        return node.can_crossbreed == self.state

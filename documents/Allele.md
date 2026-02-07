@@ -1,14 +1,5 @@
 # Allele Spec
 
-## Note
-
-Allele was originally constructed with the idea of storing raw metadata in mind. 
-That is no longer intended. Now, metadata should only be allele.
-
-Eventually, we will get around to rebuilding the data structure and tests to reflect this
-
-TODO.
-
 ## Overview
 
 An allele is an immutable data container representing a single evolvable parameter. Alleles form trees via their metadata — metadata can contain other alleles, which themselves have metadata. This recursive structure enables metalearning: mutation parameters evolve under selection pressure alongside the values they control.
@@ -69,43 +60,43 @@ Children are processed before parents. Metadata values feed into parent operatio
 
 ## Tree Utilities
 
-The allele module provides functional tree walking and synthesis utilities. These handle recursion and metadata flattening — user code never sees nested alleles, only flat data.
+The allele module provides functional tree walking and synthesis utilities. These handle recursion and metadata flattening — user code never sees nested alleles, only flat data. Trees are walked in parallel and in lockstep, meaning branch mismatches are contracted to crash. 
 
 ### walk_allele_trees
 
-The utility handles tree recursion and node traversal. The user specifies what information to extract from each node. Returns a generator stream of extracted results.
+The utility handles tree recursion and node traversal. The user specifies what information to extract from each node. Returns a generator stream of extracted results. A predicate may be passed in accepting a node and returning a bool to decide whether to trigger handler. This will be checked against all population members and the intersection must be true. 
 
 ```python
 def walk_allele_trees(
     alleles: List[Allele],
     handler: Callable[[List[Allele]], Optional[Any]],
-    include_can_mutate: bool = True,
-    include_can_crossbreed: bool = True,
+    predicate: Optional[Callable[[Allele], bool]] = None
 ) -> Generator[Any, None, None]:
 ```
 
 Walks multiple allele trees in parallel (depth-first, children-first). List order is preserved across recursion. At each node:
 1. Recursively processes all metadata alleles first
-2. Checks filtering: if node excluded by `include_can_mutate` or `include_can_crossbreed`, skips to next node
+2. Check filtering: apply predicate to all nodes, see if all are true. If not, continue. 
 3. Flattens metadata: Invokes flatten on all nodes so only raw types are present in metadata when viewed
 4. Passes a list of flattened alleles (one per input tree) to `handler`
 5. If `handler` returns a value (not None), yields it directly. Otherwise continues to next node.
 
 **Error Conditions**:
 - Type matching: Corresponding values must be the same type, whether alleles or raw values. Raises TypeError.
-- Schema matching NOT required: Raw values (domain, flags, metadata) may differ. Useful for comparing trees with different schemas. 
+- Value matching NOT required: Raw values (domain, flags, metadata) may differ. Useful for comparing trees with different schemas.
 
 ### synthesize_allele_trees
 
-The utility handles recursive tree synthesis (N source nodes → 1 result tree) and metadata resolution. The user specifies how to construct each node from a template and source nodes. Returns a new synthesized tree.
+The utility handles recursive tree synthesis (N source nodes → 1 result tree) and metadata resolution. The user specifies how to construct each node from a template and source nodes. Returns a new synthesized tree. 
+
+A predicate may be passed in accepting a node and returning a bool to decide whether to trigger handler. This will be checked against one population member. Since all schemas must be the same in synthesize anyhow, this is adequete. 
 
 ```python
 def synthesize_allele_trees(
     template_tree: Allele,
     alleles: List[Allele],
     handler: Callable[[Allele, List[Allele]], Allele],
-    include_can_mutate: bool = True,
-    include_can_crossbreed: bool = True,
+    predicate: Optional[Callable[[Allele], bool]] = None
 ) -> Allele:
 ```
 
@@ -113,7 +104,7 @@ Walks multiple trees and synthesizes a single result tree. The template_tree ide
 1. Recursively synthesizes metadata children first (N→1 for each metadata key, producing resolved child alleles)
 2. Handles validation logic and base cases
 3. Creates template (source node at template_tree's position with resolved metadata)
-4. Checks filtering: if node excluded by `include_can_mutate` or `include_can_crossbreed`, returns template (skips handler)
+4. Checks filtering: apply predicate to template node, returns template if not true (skips handler)
 5. Flattens both template and source nodes via `flatten()`
 6. Passes (template, flattened_source_nodes) to handler
 7. Handler returns new allele (typically constructed from template using `with_value()`)
@@ -132,9 +123,15 @@ Walks multiple trees and synthesizes a single result tree. The template_tree ide
 Allele provides convenience wrappers for single-tree operations:
 
 ```python
-def walk_tree(self, handler: Callable[[Allele], Optional[Any]], include_can_mutate=True, include_can_crossbreed=True) -> Generator[Any, None, None]:
+def walk_tree(self, 
+              handler: Callable[[Allele], Optional[Any]],
+              predicate: Optional[Callable[[Allele], bool]] = None
+              ) -> Generator[Any, None, None]:
     ...
-def update_tree(self, handler: Callable[[Allele], Allele], include_can_mutate=True, include_can_crossbreed=True) -> Allele:
+def update_tree(self, 
+                handler: Callable[[Allele], Allele],
+                predicate: Optional[Callable[[Allele], bool]] = None
+                ) -> Allele:
     ...
 ```
 
@@ -142,9 +139,18 @@ These wrappers:
 - Hide the list-based API (internally call core utilities with `[self]`)
 - Adapt handler signatures for single-tree convenience (handler receives single allele, not list)
 - For `update_tree`, automatically use `self` as template_tree
-- Preserve filtering capability via `include_can_mutate` and `include_can_crossbreed` parameters
+- Preserve filtering capability via predicate.
 
-### Flattening and Unflattening
+### Filtration utilities
+
+A lightweight set of callable predicate objects are provided. Each predicate object stores a desired state at construction time and is then invoked on each node during traversal/synthesis to decide whether the handler should run.
+
+For advanced use cases, predicates can be composed by applying multiple predicates and taking the intersection (logical AND) of their results.
+
+- `CanMutateFilter(state: bool)` — a callable predicate object. When invoked as `p(node: Allele) -> bool`, returns `True` iff `node.can_mutate == state`.
+- `CanCrossbreedFilter(state: bool)` — a callable predicate object. When invoked as `p(node: Allele) -> bool`, returns `True` iff `node.can_crossbreed == state`.
+
+## Flattening and Unflattening
 
 Tree utilities use flattening and unflattening to simplify handler logic while preserving tree structure.
 
@@ -312,9 +318,9 @@ The handler never sees nested alleles — `node.metadata["std"]` is a raw float.
 
 - Value is never an allele. Always a raw type.
 - Metadata can contain alleles or raw values. Alleles recurse, raw values don't.
-- Use  `include_can_mutate=False` or `include_can_crossbreed=False` to exclude marked nodes while walking.
 - Alleles are immutable. All modifications return new instances.
 - Domain must match allele type.
+- If predicate is passed into a function with a handler, only groups passing predicate are read or transformed. 
 - Tree utilities flatten metadata before calling handlers.
 - Tree operations are depth-first, children-first.
 - List order is preserved across recursion in tree utilities.

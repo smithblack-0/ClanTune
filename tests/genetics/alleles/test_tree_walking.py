@@ -12,6 +12,8 @@ from src.clan_tune.genetics.alleles import (
     IntAllele,
     walk_allele_trees,
     synthesize_allele_trees,
+    CanMutateFilter,
+    CanCrossbreedFilter,
 )
 
 
@@ -217,7 +219,7 @@ class TestSynthesizeAlleleTreesFiltering:
         def handler(template, sources):
             return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees(parent, [parent], handler, include_can_mutate=False)
+        result = synthesize_allele_trees(parent, [parent], handler, predicate=CanMutateFilter(True))
 
         # Parent value unchanged (filtered out)
         assert result.value == 5.0
@@ -231,7 +233,7 @@ class TestSynthesizeAlleleTreesFiltering:
         def handler(template, sources):
             return template.with_value(sources[0].value * 2)
 
-        result = synthesize_allele_trees(allele, [allele], handler, include_can_crossbreed=False)
+        result = synthesize_allele_trees(allele, [allele], handler, predicate=CanCrossbreedFilter(True))
 
         assert result.value == 5.0  # Original value preserved
 
@@ -327,8 +329,8 @@ class TestInstanceMethodWrappers:
         assert result.value == 10.0
         assert result.metadata["child"].value == 20.0
 
-    def test_walk_tree_passes_filter_flags(self):
-        """walk_tree passes filtering flags through."""
+    def test_walk_tree_passes_predicate(self):
+        """walk_tree passes predicate through."""
         allele = FloatAllele(5.0, can_mutate=False)
 
         visited = []
@@ -337,17 +339,70 @@ class TestInstanceMethodWrappers:
             visited.append(node.value)
             return None
 
-        list(allele.walk_tree(handler, include_can_mutate=False))
+        list(allele.walk_tree(handler, predicate=CanMutateFilter(True)))
 
         assert visited == []
 
-    def test_update_tree_passes_filter_flags(self):
-        """update_tree passes filtering flags through."""
+    def test_update_tree_passes_predicate(self):
+        """update_tree passes predicate through."""
         allele = FloatAllele(5.0, can_mutate=False)
 
         def handler(node):
             return node.with_value(node.value * 2)
 
-        result = allele.update_tree(handler, include_can_mutate=False)
+        result = allele.update_tree(handler, predicate=CanMutateFilter(True))
 
         assert result.value == 5.0  # Unchanged (filtered)
+
+    def test_can_mutate_filter_integration_with_synthesize(self):
+        """CanMutateFilter correctly filters nodes in synthesize_allele_trees."""
+        # Tree with mixed can_mutate values
+        child1 = FloatAllele(10.0, can_mutate=True)
+        child2 = FloatAllele(20.0, can_mutate=False)
+        parent = FloatAllele(5.0, can_mutate=True, metadata={"a": child1, "b": child2})
+
+        def handler(template, sources):
+            return template.with_value(sources[0].value + 100)
+
+        # Filter to only process nodes with can_mutate=True
+        result = synthesize_allele_trees(parent, [parent], handler, predicate=CanMutateFilter(True))
+
+        # Parent and child1 processed (can_mutate=True)
+        assert result.value == 105.0
+        assert result.metadata["a"].value == 110.0
+        # child2 not processed (can_mutate=False)
+        assert result.metadata["b"].value == 20.0
+
+    def test_can_crossbreed_filter_integration_with_synthesize(self):
+        """CanCrossbreedFilter correctly filters nodes in synthesize_allele_trees."""
+        # Tree with mixed can_crossbreed values
+        child1 = FloatAllele(10.0, can_crossbreed=True)
+        child2 = FloatAllele(20.0, can_crossbreed=False)
+        parent = FloatAllele(5.0, can_crossbreed=False, metadata={"a": child1, "b": child2})
+
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 3)
+
+        # Filter to only process nodes with can_crossbreed=True
+        result = synthesize_allele_trees(parent, [parent], handler, predicate=CanCrossbreedFilter(True))
+
+        # Only child1 processed (can_crossbreed=True)
+        assert result.metadata["a"].value == 30.0
+        # Parent and child2 not processed (can_crossbreed=False)
+        assert result.value == 5.0
+        assert result.metadata["b"].value == 20.0
+
+    def test_predicate_none_processes_all_nodes(self):
+        """None predicate processes all nodes (default behavior)."""
+        child = FloatAllele(10.0, can_mutate=False, can_crossbreed=False)
+        parent = FloatAllele(5.0, can_mutate=False, can_crossbreed=False, metadata={"child": child})
+
+        def handler(template, sources):
+            return template.with_value(sources[0].value * 2)
+
+        # No predicate specified - all nodes should be processed
+        result = synthesize_allele_trees(parent, [parent], handler, predicate=None)
+
+        # Both nodes processed despite flags being False
+        assert result.value == 10.0
+        assert result.metadata["child"].value == 20.0

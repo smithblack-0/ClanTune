@@ -7,7 +7,7 @@ Tests use minimal concrete implementations to verify AbstractAllele behavior.
 
 import pytest
 from unittest.mock import Mock
-from src.clan_tune.genetics.alleles import AbstractAllele
+from src.clan_tune.genetics.alleles import AbstractAllele, CanMutateFilter, CanCrossbreedFilter
 
 
 # Minimal concrete allele for testing AbstractAllele behavior
@@ -325,22 +325,21 @@ class TestAbstractAlleleTreeWalking:
         # Verify adapter works: calls user handler with single allele
         assert adapted_handler([allele]) == "test"
 
-    def test_walk_tree_passes_flags_to_walker(self):
-        """walk_tree passes include flags to walker."""
+    def test_walk_tree_passes_predicate_to_walker(self):
+        """walk_tree passes predicate to walker."""
         allele = SimpleAllele(42)
         mock_walker = Mock(return_value=iter([]))
+        predicate = CanMutateFilter(False)
 
         list(allele.walk_tree(
             lambda nodes: None,
-            include_can_mutate=False,
-            include_can_crossbreed=False,
+            predicate=predicate,
             _walker=mock_walker
         ))
 
-        # Verify flags passed through
+        # Verify predicate passed through as 3rd positional arg
         call_args = mock_walker.call_args
-        assert call_args[1]["include_can_mutate"] is False
-        assert call_args[1]["include_can_crossbreed"] is False
+        assert call_args[0][2] is predicate
 
     def test_walk_tree_yields_walker_results(self):
         """walk_tree yields results from walker function."""
@@ -379,22 +378,21 @@ class TestAbstractAlleleTreeWalking:
         # Verify adapter works: calls user handler with template only
         assert adapted_handler(allele, [allele]) is result_allele
 
-    def test_update_tree_passes_flags_to_updater(self):
-        """update_tree passes include flags to updater."""
+    def test_update_tree_passes_predicate_to_updater(self):
+        """update_tree passes predicate to updater."""
         allele = SimpleAllele(42)
         mock_updater = Mock(return_value=SimpleAllele(100))
+        predicate = CanMutateFilter(False)
 
         allele.update_tree(
             lambda nodes: 100,
-            include_can_mutate=False,
-            include_can_crossbreed=False,
+            predicate=predicate,
             _updater=mock_updater
         )
 
-        # Verify flags passed through
+        # Verify predicate passed through as 4th positional arg
         call_args = mock_updater.call_args
-        assert call_args[1]["include_can_mutate"] is False
-        assert call_args[1]["include_can_crossbreed"] is False
+        assert call_args[0][3] is predicate
 
     def test_update_tree_returns_updater_result(self):
         """update_tree returns result from updater function."""
@@ -437,10 +435,11 @@ class TestAbstractAlleleTreeWalking:
         assert call_args[0][2] is handler
 
 
-    def test_synthesize_tree_passes_flags_to_synthesizer(self):
-        """synthesize_tree passes include flags to synthesizer."""
+    def test_synthesize_tree_passes_predicate_to_synthesizer(self):
+        """synthesize_tree passes predicate to synthesizer."""
         allele = SimpleAllele(42)
         mock_synthesizer = Mock(return_value=SimpleAllele(7))
+        predicate = CanCrossbreedFilter(False)
 
         def handler(template, sources):
             return template
@@ -448,14 +447,13 @@ class TestAbstractAlleleTreeWalking:
         allele.synthesize_tree(
             [allele],
             handler,
-            include_can_mutate=False,
-            include_can_crossbreed=False,
+            predicate=predicate,
             _synthesizer=mock_synthesizer,
         )
 
+        # Verify predicate passed through as 4th positional arg
         call_args = mock_synthesizer.call_args
-        assert call_args[1]["include_can_mutate"] is False
-        assert call_args[1]["include_can_crossbreed"] is False
+        assert call_args[0][3] is predicate
 
 
     def test_synthesize_tree_returns_synthesizer_result(self):

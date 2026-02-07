@@ -11,8 +11,9 @@ from src.clan_tune.genetics.alleles import (
     IntAllele,
     _validate_parallel_types,
     _validate_schemas_match,
-    _should_include_node,
     _collect_metadata_keys,
+    CanMutateFilter,
+    CanCrossbreedFilter,
 )
 
 
@@ -51,45 +52,6 @@ class TestValidateParallelTypes:
     def test_passes_for_empty_list(self):
         """Empty list passes validation (vacuously true)."""
         _validate_parallel_types([])  # Should not raise
-
-
-class TestShouldIncludeNode:
-    """Test suite for _should_include_node helper."""
-
-    def test_includes_node_by_default(self):
-        """Node included when both filters are True."""
-        allele = FloatAllele(5.0)
-        assert _should_include_node(allele, True, True) is True
-
-    def test_excludes_when_can_mutate_false_and_filter_false(self):
-        """Node excluded when can_mutate=False and include_can_mutate=False."""
-        allele = FloatAllele(5.0, can_mutate=False)
-        assert _should_include_node(allele, False, True) is False
-
-    def test_includes_when_can_mutate_false_but_filter_true(self):
-        """Node included when can_mutate=False but include_can_mutate=True."""
-        allele = FloatAllele(5.0, can_mutate=False)
-        assert _should_include_node(allele, True, True) is True
-
-    def test_excludes_when_can_crossbreed_false_and_filter_false(self):
-        """Node excluded when can_crossbreed=False and include_can_crossbreed=False."""
-        allele = FloatAllele(5.0, can_crossbreed=False)
-        assert _should_include_node(allele, True, False) is False
-
-    def test_includes_when_can_crossbreed_false_but_filter_true(self):
-        """Node included when can_crossbreed=False but include_can_crossbreed=True."""
-        allele = FloatAllele(5.0, can_crossbreed=False)
-        assert _should_include_node(allele, True, True) is True
-
-    def test_excludes_when_both_false(self):
-        """Node excluded when both flags False and both filters False."""
-        allele = FloatAllele(5.0, can_mutate=False, can_crossbreed=False)
-        assert _should_include_node(allele, False, False) is False
-
-    def test_includes_when_can_mutate_true(self):
-        """Node included when can_mutate=True regardless of filter."""
-        allele = FloatAllele(5.0, can_mutate=True)
-        assert _should_include_node(allele, False, True) is True
 
 
 class TestCollectMetadataKeys:
@@ -200,3 +162,91 @@ class TestValidateSchemasMatch:
         error_msg = str(exc_info.value)
         assert "10.0" in error_msg or "10" in error_msg
         assert "20.0" in error_msg or "20" in error_msg
+
+
+class TestCanMutateFilter:
+    """Test suite for CanMutateFilter callable predicate."""
+
+    def test_construction_with_true_state(self):
+        """Filter can be constructed with True state."""
+        pred = CanMutateFilter(True)
+        assert pred.state is True
+
+    def test_construction_with_false_state(self):
+        """Filter can be constructed with False state."""
+        pred = CanMutateFilter(False)
+        assert pred.state is False
+
+    def test_returns_true_when_node_matches_true_state(self):
+        """Filter returns True when node can_mutate matches filter state (True)."""
+        pred = CanMutateFilter(True)
+        node = FloatAllele(5.0, can_mutate=True)
+        assert pred(node) is True
+
+    def test_returns_false_when_node_mismatches_true_state(self):
+        """Filter returns False when node can_mutate doesn't match filter state (True)."""
+        pred = CanMutateFilter(True)
+        node = FloatAllele(5.0, can_mutate=False)
+        assert pred(node) is False
+
+    def test_returns_true_when_node_matches_false_state(self):
+        """Filter returns True when node can_mutate matches filter state (False)."""
+        pred = CanMutateFilter(False)
+        node = FloatAllele(5.0, can_mutate=False)
+        assert pred(node) is True
+
+    def test_returns_false_when_node_mismatches_false_state(self):
+        """Filter returns False when node can_mutate doesn't match filter state (False)."""
+        pred = CanMutateFilter(False)
+        node = FloatAllele(5.0, can_mutate=True)
+        assert pred(node) is False
+
+    def test_works_with_intallele(self):
+        """Filter works with different allele types."""
+        pred = CanMutateFilter(True)
+        node = IntAllele(42, can_mutate=True)
+        assert pred(node) is True
+
+
+class TestCanCrossbreedFilter:
+    """Test suite for CanCrossbreedFilter callable predicate."""
+
+    def test_construction_with_true_state(self):
+        """Filter can be constructed with True state."""
+        pred = CanCrossbreedFilter(True)
+        assert pred.state is True
+
+    def test_construction_with_false_state(self):
+        """Filter can be constructed with False state."""
+        pred = CanCrossbreedFilter(False)
+        assert pred.state is False
+
+    def test_returns_true_when_node_matches_true_state(self):
+        """Filter returns True when node can_crossbreed matches filter state (True)."""
+        pred = CanCrossbreedFilter(True)
+        node = FloatAllele(5.0, can_crossbreed=True)
+        assert pred(node) is True
+
+    def test_returns_false_when_node_mismatches_true_state(self):
+        """Filter returns False when node can_crossbreed doesn't match filter state (True)."""
+        pred = CanCrossbreedFilter(True)
+        node = FloatAllele(5.0, can_crossbreed=False)
+        assert pred(node) is False
+
+    def test_returns_true_when_node_matches_false_state(self):
+        """Filter returns True when node can_crossbreed matches filter state (False)."""
+        pred = CanCrossbreedFilter(False)
+        node = FloatAllele(5.0, can_crossbreed=False)
+        assert pred(node) is True
+
+    def test_returns_false_when_node_mismatches_false_state(self):
+        """Filter returns False when node can_crossbreed doesn't match filter state (False)."""
+        pred = CanCrossbreedFilter(False)
+        node = FloatAllele(5.0, can_crossbreed=True)
+        assert pred(node) is False
+
+    def test_works_with_intallele(self):
+        """Filter works with different allele types."""
+        pred = CanCrossbreedFilter(True)
+        node = IntAllele(42, can_crossbreed=True)
+        assert pred(node) is True

@@ -395,3 +395,89 @@ class Genome:
         fitness = data["fitness"]
 
         return cls(uuid=uuid, alleles=alleles, parents=parents, fitness=fitness)
+
+    # Strategy support methods
+
+    def with_alleles(self, alleles: Dict[str, AbstractAllele]) -> "Genome":
+        """
+        Reconstruct genome with new allele package.
+
+        Args:
+            alleles: New alleles dict to use
+
+        Returns:
+            New genome with new alleles (new UUID, preserves parents and fitness)
+        """
+        return self.with_overrides(uuid=uuid4(), alleles=alleles)
+
+    def with_ancestry(self, parents: List[Tuple[float, UUID]]) -> "Genome":
+        """
+        Reconstruct genome with new ancestry package.
+
+        Args:
+            parents: New parents list in rank order
+
+        Returns:
+            New genome with new ancestry (new UUID, preserves alleles and fitness)
+        """
+        return self.with_overrides(uuid=uuid4(), parents=parents)
+
+    def update_alleles(
+        self,
+        handler: Callable[[AbstractAllele], AbstractAllele],
+        predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+        **kwargs
+    ) -> "Genome":
+        """
+        Walk alleles, apply handler to each, return new genome with transformed alleles.
+
+        Thin wrapper over synthesize_genomes for single-genome updates (mutation pattern).
+        Handler receives single allele, returns new allele. Alleles failing predicate
+        are skipped (preserved unchanged).
+
+        Args:
+            handler: Function receiving allele and kwargs, returns new allele
+            predicate: Optional filter. Handler called only if allele passes.
+            **kwargs: Keyword arguments passed to handler
+
+        Returns:
+            New genome with transformed alleles (new UUID, no parents, no fitness)
+        """
+        # Adapt handler from (allele, **kwargs) to (template, sources, **kwargs)
+        def adapted_handler(
+            template: AbstractAllele,
+            sources: List[AbstractAllele],
+            **handler_kwargs
+        ) -> AbstractAllele:
+            # Single-allele handler - just use template
+            return handler(template, **handler_kwargs)
+
+        # Delegate to synthesize_genomes with self as both template and only source
+        return synthesize_genomes(self, [self], adapted_handler, predicate, **kwargs)
+
+    def synthesize_new_alleles(
+        self,
+        population: List["Genome"],
+        handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+        predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+        **kwargs
+    ) -> "Genome":
+        """
+        Synthesize new genome from self and population (crossbreeding pattern).
+
+        Thin wrapper over synthesize_genomes using self as template. Result has
+        new alleles, new UUID, no fitness, no parents. Strategies should add ancestry
+        separately via with_ancestry().
+
+        Args:
+            population: List of genomes to synthesize from (should include self)
+            handler: Function receiving (template_allele, source_alleles, **kwargs)
+                and returning new allele
+            predicate: Optional filter. Handler called only if template passes.
+            **kwargs: Keyword arguments passed to handler
+
+        Returns:
+            New genome with synthesized alleles (new UUID, no parents, no fitness)
+        """
+        # Ensure self is in population (validation in synthesize_genomes will check)
+        return synthesize_genomes(self, population, handler, predicate, **kwargs)

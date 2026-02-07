@@ -204,6 +204,82 @@ Since they are so common, you may add properties to a class so long as you updat
 
 **Why this matters**: Presume you will screw up. If you have incremental commits, you can roll back to last good state. Without them, you're stuck manually untangling a mess.
 
+## Safe Commit Squashing
+
+**Principle**: Use additive operations (creating new commits) rather than destructive operations (rewriting history). Never risk uncommitted work.
+
+### The Safe Way: Merge --squash
+
+When squashing commits into logical units, use `git merge --squash` or create new commits rather than rewriting history:
+
+**Method 1: Create new squashed commit on a branch**
+```bash
+# User approves squashing commits A, B, C, D into one
+git checkout -b squashed-feature
+git reset --soft <commit-before-A>
+git commit -m "Squashed: Feature description"
+# Now you have both histories - choose which to keep
+```
+
+**Method 2: Merge --squash (even safer)**
+```bash
+# From main branch, after commits A, B, C, D
+git checkout -b feature-squashed <commit-before-A>
+git merge --squash main
+git commit -m "Feature description"
+# Original commits preserved, new clean branch created
+```
+
+### What NOT to Do
+
+❌ **NEVER use `git reset` when uncommitted work exists**
+- Resets can affect working directory and staging area
+- Risk of losing untracked or unstaged files
+- Hard to undo if something goes wrong
+
+❌ **NEVER use `git rebase -i` without protecting uncommitted work**
+- Rebase rewrites history and can conflict with uncommitted changes
+- Requires stashing, which can fail or be incomplete
+
+❌ **NEVER use `git stash` as a safety mechanism**
+- Stashes can fail silently for untracked files
+- Easy to forget what's in a stash
+- Not a substitute for proper backups
+
+### Protecting Uncommitted Work
+
+**Before any git history operations:**
+
+1. **Check for uncommitted work:**
+   ```bash
+   git status
+   # Look for modified, untracked, or staged files
+   ```
+
+2. **If uncommitted work exists, protect it:**
+   ```bash
+   # Option A: Commit it to a temporary branch
+   git checkout -b temp-backup
+   git add -A
+   git commit -m "WIP: Backup before squashing"
+   git checkout main
+
+   # Option B: Manual file backup
+   cp important-file.txt /tmp/important-file.txt.backup
+   ```
+
+3. **Then proceed with squashing using safe methods (merge --squash)**
+
+4. **Verify success before cleaning up backups**
+
+### The Git Philosophy
+
+**Additive > Destructive**
+- Add new commits rather than remove old ones
+- Create new branches rather than modify existing ones
+- Move forward in history rather than backward
+
+**Why this matters:** Git is designed around immutability and append-only operations. Fighting this design leads to data loss and complexity. When in doubt, create a new branch and preserve the original.
 
 ## Testing Philosophy: Black Box Testing as a Design Forcing Function
 

@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Genome orchestrator methods: add_hyperparameter, as_hyperparameters, set_fitness, get_fitness
 - Genome core methods: with_overrides for rebuilding with preserved fields
 - Genome serialization/deserialization with recursive allele handling
+- Genome module utilities: walk_genome_alleles and synthesize_genomes with handler adaptation
 - Test suite for Genome construction and orchestrator methods (32 tests)
 - Test suite for Genome serialization (15 tests)
+- Test suite for Genome module utilities (23 tests)
 
 ### Changed
 - Migrated tree walking utilities from boolean flags to predicate-based filtration

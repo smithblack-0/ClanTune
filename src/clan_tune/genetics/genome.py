@@ -27,6 +27,141 @@ _ALLELE_TYPE_REGISTRY: Dict[str, type] = {
 AlleleTypeKey = Literal["float", "int", "logfloat", "bool", "string"]
 
 
+# Module utilities (public, stateless)
+
+def walk_genome_alleles(
+    genomes: List["Genome"],
+    handler: Callable[[List[AbstractAllele]], Optional[Any]],
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+    **kwargs
+) -> Generator[Any, None, None]:
+    """
+    Walk multiple genomes' alleles in parallel, yield handler results.
+
+    Orchestrates parallel walking of genomes for information retrieval. Delegates
+    tree walking to walk_allele_trees while handling genome-level coordination.
+
+    Lists are passed in population/rank order. Handlers can extract information
+    about specific population members by index.
+
+    Args:
+        genomes: List of genomes to walk in parallel (in rank order)
+        handler: Function receiving list of alleles (one per genome) and kwargs,
+            returns Optional[Any]. Called at each node passing predicate.
+        predicate: Optional filter deciding whether to call handler at a node.
+            Applied to all alleles at a node; handler called only if all pass.
+        **kwargs: Keyword arguments passed to handler at each invocation
+
+    Yields:
+        Non-None values returned by handler
+
+    Raises:
+        ValueError: If genomes have different hyperparameter keys
+        TypeError: If alleles are not all the same type at any node (from walk_allele_trees)
+    """
+    if not genomes:
+        return
+
+    # Validate all genomes have same hyperparameter keys
+    first_keys = set(genomes[0].alleles.keys())
+    for genome in genomes[1:]:
+        if set(genome.alleles.keys()) != first_keys:
+            raise ValueError("All genomes must have same hyperparameter keys")
+
+    # Walk each hyperparameter in parallel
+    for hyperparam_name in genomes[0].alleles.keys():
+        # Extract alleles for this hyperparameter from all genomes
+        alleles = [genome.alleles[hyperparam_name] for genome in genomes]
+
+        # Create closure adapting handler to inject kwargs
+        def adapted_handler(allele_list: List[AbstractAllele]) -> Optional[Any]:
+            return handler(allele_list, **kwargs)
+
+        # Delegate to allele utility
+        yield from walk_allele_trees(alleles, adapted_handler, predicate)
+
+
+def synthesize_genomes(
+    main_genome: "Genome",
+    population: List["Genome"],
+    handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+    **kwargs
+) -> "Genome":
+    """
+    Synthesize new genome from population using handler.
+
+    Orchestrates genome synthesis by delegating allele tree synthesis to
+    synthesize_allele_trees. The main_genome defines structure (template);
+    allele utilities handle tree synthesis; this utility adapts handlers and
+    constructs results.
+
+    Result has new UUID, no fitness, no ancestry. Strategies should add ancestry
+    separately via with_ancestry().
+
+    Args:
+        main_genome: Template genome (must be in population). Used for structure
+            and as default when predicate skips nodes.
+        population: List of genomes to synthesize from (must include main_genome).
+            Alleles extracted in list order (typically rank order).
+        handler: Function receiving (template_allele, source_alleles, **kwargs)
+            and returning new allele. Template has resolved metadata (children
+            already synthesized). Sources are flattened.
+        predicate: Optional filter. Handler called only if template passes.
+            If template fails, template allele used as-is (skip handler).
+        **kwargs: Keyword arguments passed to handler at each invocation
+
+    Returns:
+        New genome with synthesized alleles (new UUID, no parents, no fitness)
+
+    Raises:
+        ValueError: If main_genome not in population, population empty, or genomes
+            have different hyperparameter keys
+        TypeError/ValueError: Schema mismatches (from synthesize_allele_trees)
+    """
+    # Validate inputs
+    if not population:
+        raise ValueError("synthesize_genomes requires non-empty population")
+    if main_genome not in population:
+        raise ValueError("main_genome must be present in population")
+
+    # Validate all genomes have same hyperparameter keys
+    first_keys = set(population[0].alleles.keys())
+    for genome in population[1:]:
+        if set(genome.alleles.keys()) != first_keys:
+            raise ValueError("All genomes must have same hyperparameter keys")
+
+    # Find template position
+    template_idx = population.index(main_genome)
+
+    # Synthesize alleles for each hyperparameter
+    new_alleles = {}
+    for hyperparam_name in population[0].alleles.keys():
+        # Extract alleles for this hyperparameter
+        alleles = [genome.alleles[hyperparam_name] for genome in population]
+        template_allele = alleles[template_idx]
+
+        # Create closure adapting handler to inject kwargs
+        def adapted_handler(
+            template: AbstractAllele,
+            sources: List[AbstractAllele]
+        ) -> AbstractAllele:
+            return handler(template, sources, **kwargs)
+
+        # Delegate to allele utility
+        synthesized_allele = synthesize_allele_trees(
+            template_allele,
+            alleles,
+            adapted_handler,
+            predicate
+        )
+
+        new_alleles[hyperparam_name] = synthesized_allele
+
+    # Return new genome with synthesized alleles (new UUID, no parents, no fitness)
+    return Genome(uuid=uuid4(), alleles=new_alleles, parents=None, fitness=None)
+
+
 class Genome:
     """
     Immutable container for evolvable hyperparameters.

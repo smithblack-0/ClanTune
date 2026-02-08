@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Removed
+
+### Fixed
+
+## [0.3.0] - 2026-02-08
+
+### Added
 - Genetics lifecycle vision document (documents/genetics_lifecycle.md) describing system architecture, component responsibilities, and evolution flow
 - AbstractAllele.synthesize_trees() method as thin wrapper for synthesize_allele_trees utility
 - CanMutateFilter and CanCrossbreedFilter callable predicate classes for tree filtration

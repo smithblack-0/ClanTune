@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clan-tune"
-version = "0.2.0"
+version = "0.3.0"
 description = "PBT-style hyperparameter schedule adaptation with cooperative gradient sharing"
 readme = "README.md"
 license = {text = "MIT"}

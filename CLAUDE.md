@@ -37,6 +37,7 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 
 **Reference directory (consult documents/ as needed for specific work):**
 
+- documents/abstract_strategies.md - abstract base classes for strategy system (ancestry, crossbreeding, mutation)
 - documents/Allele.md - allele design and mutation behavior
 - documents/expression.md - how genomes express into training hyperparameters
 - documents/genetics_lifecycle.md - system architecture, component responsibilities, and evolution flow
@@ -536,7 +537,77 @@ The friction is the point. It's telling you something is wrong.
 
 ---
 
-##
+## How to Write Specification Documents
+
+Writing specs requires synthesis before generation. These rules fundamentally change how documentation work happens.
+
+### Core Philosophy
+
+**Minimal wording to unambiguous intent.** Every word must reduce ambiguity. If removing a word creates confusion, keep it. If it doesn't, cut it. This requires synthesis, not information dumping.
+
+### The Meta-Rules
+
+1. **Progressive disclosure** - Start broad (overview, why it exists), narrow progressively (structure, then details), stop when unambiguous. Don't over-specify.
+
+2. **DRY everything** - State common patterns ONCE. Identify where each pattern belongs, state it there, reference it elsewhere. Never repeat.
+
+3. **Organize by: Contracts → Relationships → Invariants**
+   - Contracts: What signatures exist, what they return
+   - Relationships: How components delegate to each other
+   - Invariants: Rules that always hold
+
+4. **Pointed philosophy** - WHY something exists, stated concisely where relevant. "This enables X" not "X is important because...". Philosophy reduces need for technical detail by providing context.
+
+5. **Examples show primary responsibilities only** - Minimal code demonstrating what the hook receives and returns. NOT complete implementations. Just enough to be unambiguous.
+
+6. **Delegate where you delegate** - When X delegates to Y, state "delegates to Y, passing Z". Don't explain Y's internals (that's Y's spec). Focus on X's coordination role.
+
+7. **Organization is fractal** - Structure is fixed by purpose (overview → detail), not by headings. At each level, ask: "Within THIS subtask, what combination of abstract and detailed best accomplishes the job?" Headings emerge from answering that question recursively.
+
+### Operational Consequences
+
+**You can't write linearly.** These rules fundamentally change how you work:
+
+1. **Preparation IS synthesis** - Before writing a single word:
+   - Read ALL related specs completely
+   - Map the contract graph (what provides what, what delegates to what)
+   - Identify ALL common patterns across components
+   - Synthesize the big picture (how pieces relate, what the invariants are)
+   - Know the ownership boundaries
+   - This isn't optional prep - it's THE work
+
+2. **The spec is a dependency graph** - You can't specify X without understanding Y's contract. Every statement has dependencies. Must hold the whole web before placing pieces.
+
+3. **Examples come last** - You can't write examples until you've synthesized what the PRIMARY responsibility is and eliminated everything that's NOT primary.
+
+4. **Writing is placement** - Once you've synthesized:
+   - PLACE each fact in one location
+   - REFER to it elsewhere, not repeat it
+   - Common patterns typically go in contracts/overview
+   - Specific details go in component sections
+
+5. **Can't write section N without understanding sections 1 through M** - Because common patterns get stated in overview/contracts, you must know ALL details before writing the summary. Top-down writing requires bottom-up understanding.
+
+6. **Verbosity indicates missing context** - When you need many words to be unambiguous, you're often missing pointed philosophy. Brief context ("This enables X") can eliminate paragraphs of technical detail.
+
+7. **Duplication indicates incomplete synthesis** - If you say the same thing twice, you haven't identified the common pattern. The fix isn't editing - it's re-synthesizing to find where it belongs ONCE.
+
+8. **Writing reveals synthesis gaps** - When you can't be minimal AND unambiguous simultaneously:
+   - You don't understand it yet (read more)
+   - The design is actually ambiguous (pause and ask)
+   - You're over-specifying (cut it)
+   - Not a writing problem - a synthesis problem
+
+9. **Edit by re-synthesizing** - First draft typically has duplication because you haven't fully synthesized. Second pass isn't "make it sound better" - it's "find the common patterns I missed and state them once."
+
+### The Process
+
+1. **Synthesize first** - Read everything, map contracts, identify patterns, understand relationships
+2. **Place, don't generate** - Each fact goes in one location
+3. **Edit by re-synthesizing** - Find duplication, find missing patterns, state them once
+4. **Examples demonstrate primary responsibilities** - Write these last, once you know what matters
+
+---
 
 ## Coding Guide
 

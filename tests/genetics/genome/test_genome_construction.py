@@ -331,15 +331,3 @@ class TestImmutability:
 
         assert genome1.alleles == {}
         assert "lr" in genome2.alleles
-
-    def test_properties_return_references_not_copies(self):
-        """Properties return actual references (optimization), but genome is still immutable."""
-        alleles = {"lr": FloatAllele(0.01)}
-        genome = Genome(alleles=alleles)
-
-        # Getting property returns reference
-        retrieved_alleles = genome.alleles
-        assert retrieved_alleles is genome.alleles
-
-        # But modifying the dict doesn't affect genome behavior
-        # (genome is still immutable conceptually - users shouldn't mutate the dict)

@@ -37,7 +37,7 @@ The Genome object has two notable modes of operation. One is intended to be inte
 
 **Orchestrator access:**
 
-* **`add_hyperparameter(name: str, value: Any, allele_type: Type[AbstractAllele], **allele_kwargs) -> Genome`** — returns new genome with added hyperparameter. Dispatches to `allele_type(value, **allele_kwargs)` for construction.
+* **`add_hyperparameter(name: str, value: Any, allele_type: str, **allele_kwargs) -> Genome`** — returns new genome with added hyperparameter.
 * **`as_hyperparameters() -> Dict[str, Any]`** — extracts hyperparameters as name → value mapping. Returns values, not alleles.
 * **`set_fitness(value: float, new_uuid: bool = False) -> Genome`** — returns new genome with fitness assigned. 
 * **`get_fitness() -> Optional[float]`** — retrieves current fitness value. 
@@ -165,6 +165,7 @@ Genome is largely about coordination and orchestration. It owns
 * Walking the top-level alleles.
 * Fitness, ids, and ancestry
 * Supporting hyperparameter extraction for primary training
+* Dispatching through add_allele to string-keyword relevant concrete types.
 
 It does not own
 

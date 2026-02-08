@@ -159,7 +159,7 @@ def synthesize_genomes(
         new_alleles[hyperparam_name] = synthesized_allele
 
     # Return new genome with synthesized alleles (new UUID, no parents, no fitness)
-    return Genome(uuid=uuid4(), alleles=new_alleles, parents=None, fitness=None)
+    return Genome(alleles=new_alleles, parents=None, fitness=None)
 
 
 class Genome:

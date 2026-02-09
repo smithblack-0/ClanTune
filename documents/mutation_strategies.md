@@ -8,6 +8,38 @@ Mutation strategies implement AbstractMutationStrategy's hook-based pattern. The
 
 **Implementation note:** Handlers receive flattened alleles where metadata contains raw values, not nested alleles. When reading `allele.metadata.get("std", default)`, if std was injected as a GaussianStd allele during setup, metadata returns its value (a float), not the allele object. Tree utilities handle flattening/unflattening; handlers work with raw values.
 
+### Type-Specific Mutation Handling
+
+Mutation strategies must specify how they handle each concrete allele type. Type-specific behavior ensures correct semantics (linear vs log-space, discrete vs continuous).
+
+**Supported types (continuous):**
+
+**FloatAllele** - linear space mutation. Add noise directly to value:
+```python
+new_value = allele.value + noise
+return allele.with_value(new_value)
+```
+
+**IntAllele** - integer with float backing. Mutate the underlying float (raw_value), not the rounded integer:
+```python
+new_raw = allele.raw_value + noise
+return allele.with_value(new_raw)  # Rounds internally
+```
+IntAllele maintains a float internally and exposes a rounded integer via `.value`. Mutation must work with `.raw_value` to enable smooth continuous exploration (3.0 → 3.2 → 3.4 → 3.6 → 4). If you mutated the integer directly, fractional accumulation would be lost.
+
+**LogFloatAllele** - log-space semantics. Apply multiplicative changes (noise in log space):
+```python
+new_value = allele.value * exp(noise)
+return allele.with_value(new_value)
+```
+This produces proportional perturbations appropriate for log-scale parameters like learning rates.
+
+**Unsupported types (discrete - not handled by mutation strategies for now):**
+
+**BoolAllele, StringAllele** - discrete types. Mutation strategies skip these (expected to have can_mutate=False). Future extensions may add discrete mutation support.
+
+**Contract:** Each mutation strategy must specify which types it supports and how it mutates each. Strategies operating on unsupported types with can_mutate=True should skip those alleles silently (filtering handles this via can_mutate flag).
+
 ### Exploration vs Exploitation
 
 The fundamental mutation tradeoff: too much perturbation destroys good solutions, too little perturbation stagnates in local optima. Different strategies offer different balances:
@@ -46,18 +78,29 @@ For each mutable allele:
 
 ### Metalearning
 
-The std parameter can evolve. Strategies using metalearning inject a GaussianStd allele into metadata during setup. This allele participates in mutation and crossbreeding, adapting std over generations. Mutation chance is typically constant (not evolvable) to maintain stable mutation rates.
+Both std and mutation_chance are evolvable. Strategies using metalearning inject custom allele types into metadata during setup.
 
-**Example setup:**
-```python
-def handle_setup(self, allele):
-    return allele.with_metadata(
-        std=GaussianStd(self.default_std, can_change=True),
-        mutation_chance=self.default_mutation_chance
-    )
-```
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["std"] = GaussianStd allele (see below)
+- Injects: metadata["mutation_chance"] = GaussianMutationChance allele (see below)
+- Returns: allele with injected metadata
 
-The GaussianStd subclass extends FloatAllele with appropriate domain (e.g., 0.1×base to 5.0×base) and can_mutate/can_crossbreed flags enabled.
+**GaussianStd allele type:**
+- Extends: FloatAllele
+- Constructor: `GaussianStd(base_std: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}` (computed in constructor)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable standard deviation for Gaussian noise
+
+**GaussianMutationChance allele type:**
+- Extends: FloatAllele
+- Constructor: `GaussianMutationChance(value: float)`
+- Intrinsic domain: `{"min": 0.01, "max": 0.5}` (prevents extreme mutation rates)
+- Flags: can_mutate=True, can_crossbreed=True
+- Purpose: Evolvable probability of mutating each allele
+
+When metalearning disabled, handle_setup returns allele unchanged. The `.get()` pattern in handle_mutating ensures the strategy works with or without metalearning.
 
 ### When to Use
 
@@ -89,7 +132,27 @@ Cauchy distribution has infinite variance - rare but large perturbations occur. 
 
 ### Metalearning
 
-Scale can be evolvable, similar to Gaussian std. Define CauchyScale subclass with appropriate domain bounds.
+Both scale and mutation_chance are evolvable, following the same pattern as GaussianMutation.
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["scale"] = CauchyScale allele (see below)
+- Injects: metadata["mutation_chance"] = CauchyMutationChance allele (see below)
+- Returns: allele with injected metadata
+
+**CauchyScale allele type:**
+- Extends: FloatAllele
+- Constructor: `CauchyScale(base_scale: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 0.01 * base_scale, "max": 10.0 * base_scale}`
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable scale parameter for Cauchy distribution
+
+**CauchyMutationChance allele type:**
+- Extends: FloatAllele
+- Constructor: `CauchyMutationChance(value: float)`
+- Intrinsic domain: `{"min": 0.01, "max": 0.5}`
+- Flags: can_mutate=True, can_crossbreed=True
+- Purpose: Evolvable mutation frequency
 
 ### When to Use
 
@@ -152,9 +215,22 @@ This respects responsibility boundaries: ancestry selects parents, mutation deci
 
 ### Metalearning
 
-F can be evolvable. Define DifferentialEvolutionF subclass extending FloatAllele with domain like {"min": 0.5, "max": 2.0}.
+F is evolvable. Sampling mode remains constant (discrete string choice).
 
-Sampling mode is typically constant (discrete choice, not continuous parameter).
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["F"] = DifferentialEvolutionF allele (see below)
+- Injects: metadata["sampling_mode"] = raw string (constant, not evolvable)
+- Returns: allele with injected metadata
+
+**DifferentialEvolutionF allele type:**
+- Extends: FloatAllele
+- Constructor: `DifferentialEvolutionF(base_F: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 0.5, "max": 2.0}` (standard DE range)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable scale factor for difference vectors
+
+**sampling_mode rationale:** Discrete string choice ("random" vs "weighted"), not suitable for continuous evolution. Remains constant.
 
 ### When to Use
 
@@ -172,9 +248,10 @@ Avoid when:
 ### Implementation Note
 
 Concrete implementations must handle edge cases:
-- If live population has < 3 members, fall back to simpler mutation (or skip)
-- Ensure base and difference alleles are distinct (don't sample same member twice)
-- Handle out-of-bounds values via domain clamping (allele constructor handles this)
+- If live population has < 3 members, raise ValueError("DifferentialEvolution requires at least 3 live population members")
+- Sampling must be without replacement (base, allele1, allele2 must be distinct indices)
+- If sampling without replacement impossible, raise ValueError
+- Out-of-bounds values: allele.with_value() applies domain clamping per allele contract
 
 ## UniformMutation
 
@@ -197,7 +274,19 @@ No magnitude parameter - entire domain is reachable with equal probability.
 
 ### Metalearning
 
-Mutation chance can be evolvable, though typically constant. No magnitude parameter to evolve (uniform is parameter-free).
+Mutation chance is evolvable. No magnitude parameter (uniform samples entire domain with equal probability).
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["mutation_chance"] = UniformMutationChance allele (see below)
+- Returns: allele with injected metadata
+
+**UniformMutationChance allele type:**
+- Extends: FloatAllele
+- Constructor: `UniformMutationChance(value: float)`
+- Intrinsic domain: `{"min": 0.01, "max": 0.3}` (lower than Gaussian since uniform is more disruptive)
+- Flags: can_mutate=True, can_crossbreed=True
+- Purpose: Evolvable mutation frequency
 
 ### When to Use
 

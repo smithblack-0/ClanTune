@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation for each strategy includes algorithm descriptions, parameter guidance, metalearning support, usage recommendations, and strategy combination advice
 
 ### Changed
+- Concrete strategy specifications revised for correctness and completeness:
+  - Added type-specific mutation handling section to mutation_strategies.md (FloatAllele, IntAllele, LogFloatAllele contracts)
+  - Replaced tutorial code with complete contract specifications for metalearning in all mutation strategies
+  - Added systematic metalearning specifications to all strategies (evolvability decisions, intrinsic domains, allele type contracts)
+  - Replaced hedging language ("e.g.", "or skip", "typically") with unambiguous throw behaviors for edge cases
+  - Added num_parents parameter to TournamentSelection, RankSelection, BoltzmannSelection
+  - Added type support matrix to crossbreeding_strategies.md overview (continuous vs discrete type compatibility)
+  - Replaced "Example" labels with "Behavior"/"Algorithm demonstration" throughout
+  - Specified constraint validation contracts (EliteBreeds tiers, DifferentialEvolution live population, SBX parent count)
 
 ### Removed
 

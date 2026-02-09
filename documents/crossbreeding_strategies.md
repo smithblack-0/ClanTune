@@ -41,6 +41,22 @@ Crossbreeding strategies vary in how much they preserve vs disrupt parent charac
 
 This complements mutation's exploration. Mutation perturbs values locally. Crossbreeding combines values globally. Together they span the search space.
 
+### Type Support
+
+Crossbreeding strategies must specify which allele types they support. Type compatibility determines whether strategies can blend values (averaging) or must select values (sampling).
+
+**Type support by strategy:**
+
+**WeightedAverage** - continuous types only (FloatAllele, IntAllele, LogFloatAllele). Computes weighted average of source values. Cannot average discrete types (BoolAllele, StringAllele).
+
+**DominantParent** - all types. Selects value from single parent, no blending required.
+
+**SBX (Simulated Binary Crossover)** - continuous types only (FloatAllele, IntAllele, LogFloatAllele). Assumes numeric bounds and arithmetic operations. Cannot operate on discrete types.
+
+**StochasticCrossover** - all types. Samples parent per allele, no blending required.
+
+**Contract:** Strategies operating on unsupported types with can_crossbreed=True should skip those alleles silently (filtering typically handled by predicate or strategy logic). For mixed genomes (continuous + discrete hyperparameters), use DominantParent or StochasticCrossover which support all types.
+
 ## WeightedAverage
 
 Linear combination of parent values weighted by ancestry probabilities. Offspring value is weighted average of source values. Simple, smooth, preserves characteristics proportionally. Baseline crossbreeding strategy.
@@ -54,7 +70,7 @@ For each crossbreedable allele:
 
 Only parents with non-zero probability contribute. Probabilities act as linear weights.
 
-**Example with ancestry = [(0.6, uuid_0), (0.4, uuid_1), (0.0, uuid_2)] and source values [10.0, 20.0, 30.0]:**
+**Behavior (ancestry = [(0.6, uuid_0), (0.4, uuid_1), (0.0, uuid_2)], source values [10.0, 20.0, 30.0]):**
 ```
 new_value = 0.6 * 10.0 + 0.4 * 20.0 + 0.0 * 30.0
          = 6.0 + 8.0 + 0.0
@@ -87,9 +103,9 @@ For each crossbreedable allele:
 2. Use that parent's value: `new_value = sources[dominant_idx].value`
 3. Return `template.with_value(new_value)`
 
-If multiple parents tie for highest probability, implementation chooses one (e.g., first encountered).
+If multiple parents tie for highest probability, selects first (lowest index).
 
-**Example with ancestry = [(0.1, uuid_0), (0.7, uuid_1), (0.2, uuid_2)] and source values [10.0, 20.0, 30.0]:**
+**Behavior (ancestry = [(0.1, uuid_0), (0.7, uuid_1), (0.2, uuid_2)], source values [10.0, 20.0, 30.0]):**
 ```
 max_prob = 0.7 at index 1
 new_value = sources[1].value = 20.0
@@ -138,11 +154,27 @@ For each crossbreedable allele:
 - Low eta (e.g., 2): Offspring spread wider (exploration)
 - Standard value: eta=15
 
-**Parent selection:** Use two parents with highest non-zero probabilities. If only one parent has non-zero probability, fall back to simpler strategy (e.g., use that parent's value).
+**Parent selection:** Use two parents with highest non-zero probabilities. If fewer than two parents have non-zero probability, raise ValueError("SBX requires at least two parents with non-zero probability").
 
 ### Parameters
 
 - **eta** (float, default 15): Distribution index controlling offspring spread. Higher values = offspring closer to parents. Typical range: [2, 30].
+
+### Metalearning
+
+eta is evolvable, enabling adaptive exploitation/exploration balance.
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["eta"] = SBXEta allele (see below)
+- Returns: allele with injected metadata
+
+**SBXEta allele type:**
+- Extends: FloatAllele
+- Constructor: `SBXEta(base_eta: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 2.0, "max": 30.0}` (standard SBX range)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable offspring spread (low = exploration, high = exploitation)
 
 ### When to Use
 
@@ -170,7 +202,7 @@ For each crossbreedable allele:
 
 Parents with higher probabilities are more likely to be selected, but sampling is stochastic. Each allele gets an independent sample, so offspring can inherit from different parents at different loci.
 
-**Example with ancestry = [(0.2, uuid_0), (0.5, uuid_1), (0.3, uuid_2)] and three alleles:**
+**Behavior (ancestry = [(0.2, uuid_0), (0.5, uuid_1), (0.3, uuid_2)], three alleles):**
 ```
 Allele "lr": sample using [0.2, 0.5, 0.3] → select index 1 → use parent_1's lr value
 Allele "momentum": sample using [0.2, 0.5, 0.3] → select index 2 → use parent_2's momentum value

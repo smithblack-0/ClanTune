@@ -37,7 +37,7 @@ Randomly sample k genomes (tournament), select the fittest. Repeat to select mul
 
 ### Algorithm
 
-For each parent slot (typically 2):
+For each of num_parents parent slots:
 1. Randomly sample `tournament_size` genomes from population
 2. Select genome with best (minimum) fitness
 3. Record selected genome
@@ -45,8 +45,9 @@ For each parent slot (typically 2):
 After selecting all parents, build ancestry:
 - Selected parents get equal probabilities (sum to 1.0)
 - Non-selected genomes get 0.0
+- If same genome selected multiple times, it receives correspondingly higher probability
 
-**Example with tournament_size=3, selecting 2 parents from population of 5:**
+**Algorithm demonstration (tournament_size=3, num_parents=2, population=5):**
 - Round 1: sample [genome_0, genome_2, genome_4], select best (say genome_2)
 - Round 2: sample [genome_1, genome_2, genome_3], select best (say genome_2 again)
 - Result ancestry: [(0.0, uuid_0), (0.0, uuid_1), (1.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
@@ -60,6 +61,26 @@ Note: Same genome can be selected multiple times (weighted probability). If geno
   - k=3-5: Moderate pressure (typical)
   - k=10+: High pressure, strong selection
   - k=population_size: Deterministic selection of best genome
+- **num_parents** (int, default 2): Number of parents to select. Selected parents receive equal probability (sum to 1.0).
+
+### Metalearning
+
+tournament_size is evolvable. num_parents typically remains constant (structural parameter).
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["tournament_size"] = TournamentSize allele (see below)
+- Injects: metadata["num_parents"] = raw int (constant)
+- Returns: allele with injected metadata
+
+**TournamentSize allele type:**
+- Extends: IntAllele
+- Constructor: `TournamentSize(base_size: int, population_size: int, can_change: bool = True)`
+- Intrinsic domain: `{"min": 2, "max": min(10, population_size)}` (adaptive to population)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable selection pressure via tournament size
+
+**Note on IntAllele evolution:** IntAllele stores float internally, exposes rounded int. Mutation works with raw_value to enable smooth adaptation (tournament_size evolves 3.0 → 3.3 → 3.7 → 4).
 
 ### When to Use
 
@@ -96,7 +117,7 @@ Three-tier selection with explicit reproduction rules. Top tier (thrive) always 
 - Die alleles synthesized from thrive population (probabilities weight thrive members)
 - Mutation still applies to all tiers
 
-**Example with thrive=2, die=2, population=5:**
+**Behavior (thrive=2, die=2, population=5):**
 ```
 Sorted: [genome_0 (best), genome_1, genome_2, genome_3, genome_4 (worst)]
 Tiers: Thrive=[0,1], Survive=[2], Die=[3,4]
@@ -116,7 +137,11 @@ Die tier gets equal split of thrive tier (0.5 each if 2 thrive members).
 - **thrive_count** (int, default 2): Size of top tier (elite). These always reproduce and replace die tier.
 - **die_count** (int, default 2): Size of bottom tier (culled). These are replaced by thrive offspring.
 
-**Constraint:** `thrive_count + die_count < population_size` (must have survive tier).
+**Constraint:** `thrive_count + die_count < population_size` (must have survive tier). Constructor must validate this constraint and raise ValueError if violated.
+
+### Metalearning
+
+thrive_count and die_count remain constant (not evolvable). Tier sizes define population structure and should not change during evolution - shifting tiers mid-evolution would destabilize genetic continuity.
 
 ### When to Use
 
@@ -159,7 +184,7 @@ Selection based on genome rank, not raw fitness values. Genomes are sorted, and 
 - pressure=2.0: Quadratic (rank 0 four times as likely)
 - pressure=0.5: Sub-linear (gentler than linear)
 
-**Example with population=5, pressure=1.0:**
+**Behavior (population=5, pressure=1.0, num_parents=2):**
 ```
 Ranks: [0 (best), 1, 2, 3, 4 (worst)]
 Weights: [5, 4, 3, 2, 1]  (population_size - rank)
@@ -171,6 +196,24 @@ Sample 2 parents using these probabilities, build ancestry list.
 ### Parameters
 
 - **selection_pressure** (float, default 1.0): Controls rank-to-probability mapping. Higher values increase pressure (favor top ranks more). Typical range: [0.5, 2.0].
+- **num_parents** (int, default 2): Number of parents to sample from rank probabilities.
+
+### Metalearning
+
+selection_pressure is evolvable. num_parents typically remains constant.
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["selection_pressure"] = SelectionPressure allele (see below)
+- Injects: metadata["num_parents"] = raw int (constant)
+- Returns: allele with injected metadata
+
+**SelectionPressure allele type:**
+- Extends: FloatAllele
+- Constructor: `SelectionPressure(base_pressure: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 0.5, "max": 3.0}` (sub-linear to super-linear range)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable selection pressure adapting over time
 
 ### When to Use
 
@@ -203,7 +246,7 @@ Temperature-based selection inspired by simulated annealing. Selection probabili
 - Low temp (T << fitness_range): Weights exponentially favor best, high pressure
 - Decreasing temp over generations: annealing schedule (explore early, exploit late)
 
-**Example with population=3, fitness=[1.0, 2.0, 3.0], temperature=1.0:**
+**Behavior (population=3, fitness=[1.0, 2.0, 3.0], temperature=1.0, num_parents=2):**
 ```
 Weights: [exp(-1/1), exp(-2/1), exp(-3/1)] = [0.368, 0.135, 0.050]
 Probabilities: [0.368, 0.135, 0.050] / 0.553 = [0.67, 0.24, 0.09]
@@ -218,10 +261,24 @@ Best genome (fitness=1.0) gets 67% probability.
   - T=1.0: Moderate pressure
   - T=0.1: Very high pressure
   - **Annealing schedule:** Start high (T=5.0), decrease over generations (T → 0.5)
+- **num_parents** (int, default 2): Number of parents to sample from Boltzmann probabilities.
 
 ### Metalearning
 
-Temperature can be evolvable, though typically controlled by external schedule. If using metalearning, define TemperatureAllele with appropriate domain bounds.
+temperature is evolvable, enabling adaptive pressure without external annealing schedules. When using metalearning, temperature evolution can complement or replace manual annealing. num_parents typically remains constant.
+
+**handle_setup contract:**
+- Receives: allele (AbstractAllele)
+- Injects: metadata["temperature"] = Temperature allele (see below)
+- Injects: metadata["num_parents"] = raw int (constant)
+- Returns: allele with injected metadata
+
+**Temperature allele type:**
+- Extends: FloatAllele
+- Constructor: `Temperature(base_temperature: float, can_change: bool = True)`
+- Intrinsic domain: `{"min": 0.1, "max": 10.0}` (high to low pressure range)
+- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Purpose: Evolvable selection pressure, alternative to manual annealing
 
 ### When to Use
 

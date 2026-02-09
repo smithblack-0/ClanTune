@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Concrete strategy specifications (documents/mutation_strategies.md) describing 4 mutation strategies: GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation
+- Concrete strategy specifications (documents/ancestry_strategies.md) describing 4 ancestry strategies: TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection
+- Concrete strategy specifications (documents/crossbreeding_strategies.md) describing 4 crossbreeding strategies: WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
+- Documentation for each strategy includes algorithm descriptions, parameter guidance, metalearning support, usage recommendations, and strategy combination advice
 
 ### Changed
 

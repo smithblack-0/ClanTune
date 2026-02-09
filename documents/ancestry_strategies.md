@@ -54,20 +54,24 @@ After selecting all parents, build ancestry:
 
 Note: Same genome can be selected multiple times (weighted probability). If genome_2 selected twice, it gets probability 1.0 (all contribution).
 
-### Parameters
+### Constructor
 
-- **tournament_size** (int, default 3): Number of genomes per tournament. Controls selection pressure:
-  - k=2: Low pressure, more randomness
-  - k=3-5: Moderate pressure (typical)
-  - k=10+: High pressure, strong selection
-  - k=population_size: Deterministic selection of best genome
-- **num_parents** (int, default 2): Number of parents to select. Selected parents receive equal probability (sum to 1.0).
+```python
+TournamentSelection(default_tournament_size=3, num_parents=2, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_tournament_size** (int, default 3): Tournament size used when metalearning disabled. Controls selection pressure.
+- **num_parents** (int, default 2): Number of parents to select. Remains constant (structural parameter).
+- **use_metalearning** (bool, default False): Enable metalearning for tournament_size parameter.
 
 ### Metalearning
 
-tournament_size is evolvable. num_parents typically remains constant (structural parameter).
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable tournament_size allele. num_parents remains constant (structural parameter).
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["tournament_size"] = TournamentSize allele (see below)
 - Injects: metadata["num_parents"] = raw int (constant)
@@ -132,8 +136,13 @@ genome_4: [(0.5, uuid_0), (0.5, uuid_1), (0.0, uuid_2), (0.0, uuid_3), (0.0, uui
 
 Die tier gets equal split of thrive tier (0.5 each if 2 thrive members).
 
-### Parameters
+### Constructor
 
+```python
+EliteBreeds(thrive_count=2, die_count=2)
+```
+
+**Parameters:**
 - **thrive_count** (int, default 2): Size of top tier (elite). These always reproduce and replace die tier.
 - **die_count** (int, default 2): Size of bottom tier (culled). These are replaced by thrive offspring.
 
@@ -193,16 +202,24 @@ Probabilities: [5/15, 4/15, 3/15, 2/15, 1/15] = [0.33, 0.27, 0.20, 0.13, 0.07]
 
 Sample 2 parents using these probabilities, build ancestry list.
 
-### Parameters
+### Constructor
 
-- **selection_pressure** (float, default 1.0): Controls rank-to-probability mapping. Higher values increase pressure (favor top ranks more). Typical range: [0.5, 2.0].
-- **num_parents** (int, default 2): Number of parents to sample from rank probabilities.
+```python
+RankSelection(default_selection_pressure=1.0, num_parents=2, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_selection_pressure** (float, default 1.0): Pressure used when metalearning disabled. Controls rank-to-probability mapping.
+- **num_parents** (int, default 2): Number of parents to sample. Remains constant (structural parameter).
+- **use_metalearning** (bool, default False): Enable metalearning for selection_pressure parameter.
 
 ### Metalearning
 
-selection_pressure is evolvable. num_parents typically remains constant.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable selection_pressure allele. num_parents remains constant.
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["selection_pressure"] = SelectionPressure allele (see below)
 - Injects: metadata["num_parents"] = raw int (constant)
@@ -254,20 +271,24 @@ Probabilities: [0.368, 0.135, 0.050] / 0.553 = [0.67, 0.24, 0.09]
 
 Best genome (fitness=1.0) gets 67% probability.
 
-### Parameters
+### Constructor
 
-- **temperature** (float, default 1.0): Controls selection pressure. Can be constant or annealed over time:
-  - T=10.0: Very low pressure, nearly uniform
-  - T=1.0: Moderate pressure
-  - T=0.1: Very high pressure
-  - **Annealing schedule:** Start high (T=5.0), decrease over generations (T → 0.5)
-- **num_parents** (int, default 2): Number of parents to sample from Boltzmann probabilities.
+```python
+BoltzmannSelection(default_temperature=1.0, num_parents=2, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_temperature** (float, default 1.0): Temperature used when metalearning disabled. Controls selection pressure.
+- **num_parents** (int, default 2): Number of parents to sample. Remains constant (structural parameter).
+- **use_metalearning** (bool, default False): Enable metalearning for temperature parameter. When enabled, temperature evolves instead of following external annealing schedule.
 
 ### Metalearning
 
-temperature is evolvable, enabling adaptive pressure without external annealing schedules. When using metalearning, temperature evolution can complement or replace manual annealing. num_parents typically remains constant.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults. Temperature can be manually annealed via external schedule.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable temperature allele. Temperature evolves under selection pressure, enabling adaptive pressure without external annealing. Evolvable temperature can complement or replace manual annealing. num_parents remains constant.
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["temperature"] = Temperature allele (see below)
 - Injects: metadata["num_parents"] = raw int (constant)

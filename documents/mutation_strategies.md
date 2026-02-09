@@ -25,7 +25,7 @@ return allele.with_value(new_value)
 new_raw = allele.raw_value + noise
 return allele.with_value(new_raw)  # Rounds internally
 ```
-IntAllele maintains a float internally and exposes a rounded integer via `.value`. Mutation must work with `.raw_value` to enable smooth continuous exploration (3.0 → 3.2 → 3.4 → 3.6 → 4). If you mutated the integer directly, fractional accumulation would be lost.
+IntAllele maintains a float internally and exposes a rounded integer via `.value`. Mutation must work with `.raw_value` to enable smooth continuous exploration (3.0 → 3.2 → 3.4 → 3.6 → 4). If you mutated the integer directly, fractional accumulation would be lost. For similar reasons, it is highly recommended to keep perturbing high enough to encourage exploring other rounded states.
 
 **LogFloatAllele** - log-space semantics. Apply multiplicative changes (noise in log space):
 ```python
@@ -71,16 +71,24 @@ For each mutable allele:
 2. With probability `mutation_chance`, add noise: `new_value = value + N(0, std)`
 3. Return allele.with_value(new_value) (domain clamping handled by constructor)
 
-### Parameters
+### Constructor
 
-- **std** (float, default 0.1): Standard deviation of Gaussian noise. Controls perturbation magnitude. Larger std increases exploration, smaller increases exploitation.
-- **mutation_chance** (float, default 0.15): Probability of mutating each allele. Independent control over mutation frequency.
+```python
+GaussianMutation(default_std=0.1, default_mutation_chance=0.15, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_std** (float, default 0.1): Standard deviation used when metalearning disabled. Controls perturbation magnitude.
+- **default_mutation_chance** (float, default 0.15): Mutation probability used when metalearning disabled.
+- **use_metalearning** (bool, default False): Enable metalearning for this strategy. When False, uses constructor defaults. When True, injects evolvable metadata alleles.
 
 ### Metalearning
 
-Both std and mutation_chance are evolvable. Strategies using metalearning inject custom allele types into metadata during setup.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults (default_std, default_mutation_chance) for all alleles.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both std and mutation_chance evolve under selection pressure.
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["std"] = GaussianStd allele (see below)
 - Injects: metadata["mutation_chance"] = GaussianMutationChance allele (see below)
@@ -100,7 +108,7 @@ Both std and mutation_chance are evolvable. Strategies using metalearning inject
 - Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable probability of mutating each allele
 
-When metalearning disabled, handle_setup returns allele unchanged. The `.get()` pattern in handle_mutating ensures the strategy works with or without metalearning.
+The `.get()` pattern in handle_mutating ensures the strategy works regardless of use_metalearning setting.
 
 ### When to Use
 
@@ -125,16 +133,24 @@ Identical to Gaussian except noise distribution: `new_value = value + Cauchy(0, 
 
 Cauchy distribution has infinite variance - rare but large perturbations occur. Most mutations are small (like Gaussian), but outliers enable exploration.
 
-### Parameters
+### Constructor
 
-- **scale** (float, default 0.1): Scale parameter of Cauchy distribution. Analogous to Gaussian std but produces heavier tails.
-- **mutation_chance** (float, default 0.15): Probability of mutating each allele.
+```python
+CauchyMutation(default_scale=0.1, default_mutation_chance=0.15, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_scale** (float, default 0.1): Scale parameter used when metalearning disabled. Controls perturbation magnitude.
+- **default_mutation_chance** (float, default 0.15): Mutation probability used when metalearning disabled.
+- **use_metalearning** (bool, default False): Enable metalearning for this strategy.
 
 ### Metalearning
 
-Both scale and mutation_chance are evolvable, following the same pattern as GaussianMutation.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both scale and mutation_chance evolve.
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["scale"] = CauchyScale allele (see below)
 - Injects: metadata["mutation_chance"] = CauchyMutationChance allele (see below)
@@ -208,16 +224,24 @@ DifferentialEvolution demonstrates the ancestry interpretation pattern:
 
 This respects responsibility boundaries: ancestry selects parents, mutation decides how to use them for perturbations.
 
-### Parameters
+### Constructor
 
-- **F** (float, default 0.8): Scale factor for difference vectors. Controls perturbation magnitude. F ∈ [0.5, 1.0] is typical. Larger F increases exploration.
-- **sampling_mode** (str, default "random"): How to sample from live population. Options: "random" (uniform) or "weighted" (by ancestry probabilities).
+```python
+DifferentialEvolution(default_F=0.8, default_sampling_mode="random", use_metalearning=False)
+```
+
+**Parameters:**
+- **default_F** (float, default 0.8): Scale factor used when metalearning disabled. F ∈ [0.5, 1.0] is typical.
+- **default_sampling_mode** (str, default "random"): Sampling mode. Options: "random" (uniform) or "weighted" (by ancestry probabilities).
+- **use_metalearning** (bool, default False): Enable metalearning for F parameter.
 
 ### Metalearning
 
-F is evolvable. Sampling mode remains constant (discrete string choice).
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable F allele. Sampling mode remains constant (discrete string choice).
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["F"] = DifferentialEvolutionF allele (see below)
 - Injects: metadata["sampling_mode"] = raw string (constant, not evolvable)
@@ -266,17 +290,25 @@ For each mutable allele:
 
 For continuous domains (FloatAllele), samples uniformly from [min, max]. For discrete domains (StringAllele), samples uniformly from set.
 
-### Parameters
+### Constructor
 
-- **mutation_chance** (float, default 0.1): Probability of mutating each allele. Lower default than Gaussian since uniform perturbations are more disruptive.
+```python
+UniformMutation(default_mutation_chance=0.1, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_mutation_chance** (float, default 0.1): Mutation probability used when metalearning disabled. Lower than Gaussian since uniform perturbations are more disruptive.
+- **use_metalearning** (bool, default False): Enable metalearning for mutation_chance parameter.
 
 No magnitude parameter - entire domain is reachable with equal probability.
 
 ### Metalearning
 
-Mutation chance is evolvable. No magnitude parameter (uniform samples entire domain with equal probability).
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable mutation_chance allele. No magnitude parameter (uniform samples entire domain with equal probability).
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["mutation_chance"] = UniformMutationChance allele (see below)
 - Returns: allele with injected metadata

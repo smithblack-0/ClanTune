@@ -156,15 +156,23 @@ For each crossbreedable allele:
 
 **Parent selection:** Use two parents with highest non-zero probabilities. If fewer than two parents have non-zero probability, raise ValueError("SBX requires at least two parents with non-zero probability").
 
-### Parameters
+### Constructor
 
-- **eta** (float, default 15): Distribution index controlling offspring spread. Higher values = offspring closer to parents. Typical range: [2, 30].
+```python
+SimulatedBinaryCrossover(default_eta=15, use_metalearning=False)
+```
+
+**Parameters:**
+- **default_eta** (float, default 15): Distribution index used when metalearning disabled. Controls offspring spread. Typical range: [2, 30].
+- **use_metalearning** (bool, default False): Enable metalearning for eta parameter.
 
 ### Metalearning
 
-eta is evolvable, enabling adaptive exploitation/exploration balance.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default.
 
-**handle_setup contract:**
+**When use_metalearning=True:** handle_setup injects evolvable eta allele, enabling adaptive exploitation/exploration balance.
+
+**handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
 - Injects: metadata["eta"] = SBXEta allele (see below)
 - Returns: allele with injected metadata

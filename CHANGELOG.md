@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added type support matrix to crossbreeding_strategies.md overview (continuous vs discrete type compatibility)
   - Replaced "Example" labels with "Behavior"/"Algorithm demonstration" throughout
   - Specified constraint validation contracts (EliteBreeds tiers, DifferentialEvolution live population, SBX parent count)
+  - Added Constructor sections to all strategies specifying parameters and use_metalearning flag
+  - Clarified metalearning behavior: when use_metalearning=False (uses constructor defaults), when use_metalearning=True (injects evolvable metadata alleles)
 
 ### Removed
 

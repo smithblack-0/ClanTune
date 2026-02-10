@@ -128,15 +128,15 @@ class RankSelection(AbstractAncestryStrategy):
         n = len(population)
         sorted_pop = sorted(population, key=lambda g: g.fitness)
 
-        raw_weights = {
-            genome.uuid: (n - i) ** self.selection_pressure if i < self.num_parents else 0.0
-            for i, genome in enumerate(sorted_pop)
+        live_weights = {
+            sorted_pop[i].uuid: (n - i) ** self.selection_pressure
+            for i in range(min(self.num_parents, n))
         }
 
-        total = sum(w for w in raw_weights.values() if w > 0)
-        probs = {uuid: w / total if w > 0 else 0.0 for uuid, w in raw_weights.items()}
+        total = sum(live_weights.values())
+        probs = {uuid: w / total for uuid, w in live_weights.items()}
 
-        return [(probs[genome.uuid], genome.uuid) for genome in population]
+        return [(probs.get(genome.uuid, 0.0), genome.uuid) for genome in population]
 
 
 class BoltzmannSelection(AbstractAncestryStrategy):
@@ -165,22 +165,17 @@ class BoltzmannSelection(AbstractAncestryStrategy):
     def select_ancestry(
         self, my_genome: Genome, population: List[Genome]
     ) -> List[Tuple[float, UUID]]:
-        boltzmann_weights = {
+        all_weights = {
             genome.uuid: math.exp(-genome.fitness / self.temperature)
             for genome in population
         }
 
-        sorted_by_weight = sorted(
-            population, key=lambda g: boltzmann_weights[g.uuid], reverse=True
-        )
-        selected_set = set(sorted_by_weight[: self.num_parents])
+        top_genomes = sorted(population, key=lambda g: all_weights[g.uuid], reverse=True)[
+            : self.num_parents
+        ]
+        live_weights = {g.uuid: all_weights[g.uuid] for g in top_genomes}
 
-        total = sum(boltzmann_weights[g.uuid] for g in selected_set)
-        probs = {
-            genome.uuid: boltzmann_weights[genome.uuid] / total
-            if genome in selected_set
-            else 0.0
-            for genome in population
-        }
+        total = sum(live_weights.values())
+        probs = {uuid: w / total for uuid, w in live_weights.items()}
 
-        return [(probs[genome.uuid], genome.uuid) for genome in population]
+        return [(probs.get(genome.uuid, 0.0), genome.uuid) for genome in population]

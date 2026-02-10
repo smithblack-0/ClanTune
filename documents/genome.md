@@ -46,8 +46,8 @@ The Genome object has two notable modes of operation. One is intended to be inte
 
 * **`with_alleles(alleles: Dict[str, AbstractAllele]) -> Genome`** — reconstructs genome with a new allele package. 
 * **`with_ancestry(parents: List[Tuple[float, UUID]]) -> Genome`** — reconstructs genome with a new ancestry package.
-* **`update_alleles(handler: Callable[[AbstractAllele], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]]) -> Genome`** — walks alleles, applies handler to each, returns new genome with transformed alleles. Used for mutation and setup patterns. Anything that does not pass filtration is skipped. 
-* **`synthesize_new_alleles(population: List[Genome], handler: Callable[[AbstractAllele, List[AbstractAllele], ...], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]]) -> Genome`** — walks alleles across self and population in parallel, applies handler receiving (self_allele, population_alleles, kwargs), returns new genome with synthesized alleles. Uses self as template and self.parents as ancestry. Used for crossbreeding pattern.
+* **`update_alleles(handler: Callable[[AbstractAllele, ...], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]], kwargs: Optional[Dict[str, Any]] = None) -> Genome`** — walks alleles, applies handler to each, returns new genome with transformed alleles. Used for mutation pattern. Handler receives `(allele, **unpacked_kwargs)`. Anything that does not pass filtration is skipped.
+* **`synthesize_new_alleles(population: List[Genome], handler: Callable[[AbstractAllele, List[AbstractAllele], ...], AbstractAllele], predicate: Optional[Callable[[AbstractAllele], bool]], kwargs: Optional[Dict[str, Any]] = None) -> Genome`** — walks alleles across self and population in parallel, applies handler receiving `(template, allele_population, **unpacked_kwargs)`, returns new genome with synthesized alleles. Uses self as template.
 
 **Serialization:**
 
@@ -81,8 +81,8 @@ Note that lists are passed around in population order. This means it is expected
 def walk_genome_alleles(
     genomes: List[Genome],
     handler: Callable[[List[AbstractAllele], ...], Optional[Any]],
-    predicate: Optional[Callable[[AbstractAllele], bool]],
-    **kwargs
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
 ) -> Generator[Any, None, None]:
 ```
 
@@ -91,9 +91,9 @@ def walk_genome_alleles(
 2. For each hyperparameter: extract alleles, delegate to `walk_allele_trees`
 3. Yield results from allele walker
 
-**Handler contract:** 
+**Handler contract:**
 
-User handler receives `List[AbstractAllele]` (one per genome, in population list order). Returns `Optional[Any]`. Handler is also consistently passed any kwargs the user specifies. Also receives any specified keyword arguments as well.
+User handler receives `List[AbstractAllele]` (one per genome, in population list order) and any entries from `kwargs` unpacked as keyword arguments. Returns `Optional[Any]`. Pass `kwargs={'key': value}` at the call site; handler receives them as `handler(alleles, key=value)`.
 
 **Invariants:**
 - Genomes must have matching schemas for corresponding hyperparameters
@@ -108,8 +108,8 @@ def synthesize_genomes(
     main_genome: Genome,
     population: List[Genome],
     handler: Callable[[AbstractAllele, List[AbstractAllele], ...], AbstractAllele],
-    predicate: Optional[Callable[[AbstractAllele], bool]],
-    **kwargs
+    predicate: Optional[Callable[[AbstractAllele], bool]] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
 ) -> Genome:
 ```
 
@@ -132,19 +132,19 @@ The handler creates a new allele for the next generation from the template allel
 
 * **template allele** (AbstractAllele): The allele from the template genome. Note that it contains any updated metalearning suballeles already flattened to raw value for easy usage. No need to do GaussianSTD.value; it is already extacted. 
 * **allele population** (List[AbstractAllele]): Across the population, at this common tree node, what alleles exist at the various ranks.
-* **keyword arguments** Whatever keyword arguments the user passed in handler receives.
+* **keyword arguments**: entries from `kwargs` dict, unpacked as named parameters. Pass `kwargs={'scale': 2.0}` at call site; handler receives `handler(template, allele_population, scale=2.0)`.
 
-The handler should use `template.with_value(new_value)` to create the new allele. The template provides domain and structure; the handler computes the new value from the population.
+The handler should use `template.with_value(new_value)` to create the new allele. The template provides domain and structure; the handler computes the new value from the population alleles.
 
-**Adapting handlers:** 
+**Adapting handlers:**
 
- User handler expects `(template_allele, source_alleles, ***kwargs) -> allele`. Allele utility `synthesize_allele_trees` expects `(template_allele, source_alleles) -> allele` (no ancestry). The adapter bridges this:
+User handler expects `(template, population, **unpacked_kwargs) -> allele`. Allele utility `synthesize_allele_trees` expects `(template, population) -> allele` (no kwargs). The adapter bridges this by closing over `kwargs`:
 
 ```python
-def adapted_handler(template_allele, source_alleles):
-    # Called by synthesize_allele_trees (no ancestry parameter)
-    # Inject kwargs from context
-    return user_handler(template_allele, source_alleles, **kwargs)
+def adapted_handler(template, allele_population):
+    # Called by synthesize_allele_trees (no kwargs parameter)
+    # Unpack kwargs dict into named arguments
+    return user_handler(template, allele_population, **(kwargs or {}))
 ```
 
 

@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated CLAUDE.md reference directory to include new strategy specification documents
+- Added WalkHandler, SynthesizeHandler, UpdateHandler Protocol classes to genome.py to properly express required positional args and **kwargs in handler type contracts
+- Updated all four handler type hints in genome.py to use Protocols (walk_genome_alleles, synthesize_genomes, update_alleles, synthesize_new_alleles)
+- Renamed adapted_handler parameter sources → allele_population in synthesize_genomes to match spec invariant (allele lists are allele populations)
+- Fixed genome.md handler description examples to consistently use allele_population for List[AbstractAllele] parameters
 - Concrete strategy specifications revised for correctness and completeness:
   - Added type-specific mutation handling section to mutation_strategies.md (FloatAllele, IntAllele, LogFloatAllele contracts)
   - Replaced tutorial code with complete contract specifications for metalearning in all mutation strategies

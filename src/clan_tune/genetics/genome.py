@@ -1,7 +1,7 @@
 """Genome system for ClanTune genetics."""
 
 from uuid import UUID, uuid4
-from typing import Dict, List, Optional, Any, Callable, Generator, Tuple, Literal
+from typing import Dict, List, Optional, Any, Callable, Generator, Tuple, Literal, Protocol
 
 from .alleles import (
     AbstractAllele,
@@ -13,6 +13,33 @@ from .alleles import (
     walk_allele_trees,
     synthesize_allele_trees,
 )
+
+
+# Handler Protocols — express required positional args and **kwargs together
+
+
+class WalkHandler(Protocol):
+    """Handler for walk_genome_alleles: receives allele population and unpacked kwargs."""
+
+    def __call__(self, allele_population: List[AbstractAllele], **kwargs: Any) -> Optional[Any]: ...
+
+
+class SynthesizeHandler(Protocol):
+    """Handler for synthesize_genomes / synthesize_new_alleles: receives template allele,
+    allele population, and unpacked kwargs."""
+
+    def __call__(
+        self,
+        template: AbstractAllele,
+        allele_population: List[AbstractAllele],
+        **kwargs: Any,
+    ) -> AbstractAllele: ...
+
+
+class UpdateHandler(Protocol):
+    """Handler for update_alleles: receives single allele and unpacked kwargs."""
+
+    def __call__(self, allele: AbstractAllele, **kwargs: Any) -> AbstractAllele: ...
 
 
 # Type registry for string-based dispatch
@@ -31,9 +58,9 @@ AlleleTypeKey = Literal["float", "int", "logfloat", "bool", "string"]
 
 def walk_genome_alleles(
     genomes: List["Genome"],
-    handler: Callable[[List[AbstractAllele]], Optional[Any]],
+    handler: WalkHandler,
     predicate: Optional[Callable[[AbstractAllele], bool]] = None,
-    **kwargs
+    kwargs: Optional[Dict[str, Any]] = None,
 ) -> Generator[Any, None, None]:
     """
     Walk multiple genomes' alleles in parallel, yield handler results.
@@ -46,11 +73,11 @@ def walk_genome_alleles(
 
     Args:
         genomes: List of genomes to walk in parallel (in rank order)
-        handler: Function receiving list of alleles (one per genome) and kwargs,
-            returns Optional[Any]. Called at each node passing predicate.
+        handler: Function receiving list of alleles (one per genome) and unpacked
+            kwargs entries, returns Optional[Any]. Called at each node passing predicate.
         predicate: Optional filter deciding whether to call handler at a node.
             Applied to all alleles at a node; handler called only if all pass.
-        **kwargs: Keyword arguments passed to handler at each invocation
+        kwargs: Optional dict of keyword arguments unpacked into handler at each invocation.
 
     Yields:
         Non-None values returned by handler
@@ -73,9 +100,9 @@ def walk_genome_alleles(
         # Extract alleles for this hyperparameter from all genomes
         alleles = [genome.alleles[hyperparam_name] for genome in genomes]
 
-        # Create closure adapting handler to inject kwargs
+        # Create closure adapting handler to unpack kwargs dict
         def adapted_handler(allele_list: List[AbstractAllele]) -> Optional[Any]:
-            return handler(allele_list, **kwargs)
+            return handler(allele_list, **(kwargs or {}))
 
         # Delegate to allele utility
         yield from walk_allele_trees(alleles, adapted_handler, predicate)
@@ -84,9 +111,9 @@ def walk_genome_alleles(
 def synthesize_genomes(
     main_genome: "Genome",
     population: List["Genome"],
-    handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+    handler: SynthesizeHandler,
     predicate: Optional[Callable[[AbstractAllele], bool]] = None,
-    **kwargs
+    kwargs: Optional[Dict[str, Any]] = None,
 ) -> "Genome":
     """
     Synthesize new genome from population using handler.
@@ -104,12 +131,12 @@ def synthesize_genomes(
             and as default when predicate skips nodes.
         population: List of genomes to synthesize from (must include main_genome).
             Alleles extracted in list order (typically rank order).
-        handler: Function receiving (template_allele, source_alleles, **kwargs)
+        handler: Function receiving (template_allele, source_alleles, **unpacked_kwargs)
             and returning new allele. Template has resolved metadata (children
             already synthesized). Sources are flattened.
         predicate: Optional filter. Handler called only if template passes.
             If template fails, template allele used as-is (skip handler).
-        **kwargs: Keyword arguments passed to handler at each invocation
+        kwargs: Optional dict of keyword arguments unpacked into handler at each invocation.
 
     Returns:
         New genome with synthesized alleles (new UUID, no parents, no fitness)
@@ -141,12 +168,12 @@ def synthesize_genomes(
         alleles = [genome.alleles[hyperparam_name] for genome in population]
         template_allele = alleles[template_idx]
 
-        # Create closure adapting handler to inject kwargs
+        # Create closure adapting handler to unpack kwargs dict
         def adapted_handler(
             template: AbstractAllele,
-            sources: List[AbstractAllele]
+            allele_population: List[AbstractAllele],
         ) -> AbstractAllele:
-            return handler(template, sources, **kwargs)
+            return handler(template, allele_population, **(kwargs or {}))
 
         # Delegate to allele utility
         synthesized_allele = synthesize_allele_trees(
@@ -424,26 +451,26 @@ class Genome:
 
     def update_alleles(
         self,
-        handler: Callable[[AbstractAllele], AbstractAllele],
+        handler: UpdateHandler,
         predicate: Optional[Callable[[AbstractAllele], bool]] = None,
-        **kwargs
+        kwargs: Optional[Dict[str, Any]] = None,
     ) -> "Genome":
         """
         Walk alleles, apply handler to each, return new genome with transformed alleles.
 
         Thin wrapper over synthesize_genomes for single-genome updates (mutation pattern).
-        Handler receives single allele, returns new allele. Alleles failing predicate
-        are skipped (preserved unchanged).
+        Handler receives single allele plus unpacked kwargs entries, returns new allele.
+        Alleles failing predicate are skipped (preserved unchanged).
 
         Args:
-            handler: Function receiving allele and kwargs, returns new allele
+            handler: Function receiving allele and unpacked kwargs entries, returns new allele
             predicate: Optional filter. Handler called only if allele passes.
-            **kwargs: Keyword arguments passed to handler
+            kwargs: Optional dict of keyword arguments unpacked into handler at each invocation.
 
         Returns:
             New genome with transformed alleles (new UUID, no parents, no fitness)
         """
-        # Adapt handler from (allele, **kwargs) to (template, sources, **kwargs)
+        # Adapt handler from (allele, **unpacked_kwargs) to (template, sources, **unpacked_kwargs)
         def adapted_handler(
             template: AbstractAllele,
             sources: List[AbstractAllele],
@@ -453,14 +480,14 @@ class Genome:
             return handler(template, **handler_kwargs)
 
         # Delegate to synthesize_genomes with self as both template and only source
-        return synthesize_genomes(self, [self], adapted_handler, predicate, **kwargs)
+        return synthesize_genomes(self, [self], adapted_handler, predicate, kwargs)
 
     def synthesize_new_alleles(
         self,
         population: List["Genome"],
-        handler: Callable[[AbstractAllele, List[AbstractAllele]], AbstractAllele],
+        handler: SynthesizeHandler,
         predicate: Optional[Callable[[AbstractAllele], bool]] = None,
-        **kwargs
+        kwargs: Optional[Dict[str, Any]] = None,
     ) -> "Genome":
         """
         Synthesize new genome from self and population (crossbreeding pattern).
@@ -471,13 +498,13 @@ class Genome:
 
         Args:
             population: List of genomes to synthesize from (should include self)
-            handler: Function receiving (template_allele, source_alleles, **kwargs)
+            handler: Function receiving (template_allele, source_alleles, **unpacked_kwargs)
                 and returning new allele
             predicate: Optional filter. Handler called only if template passes.
-            **kwargs: Keyword arguments passed to handler
+            kwargs: Optional dict of keyword arguments unpacked into handler at each invocation.
 
         Returns:
             New genome with synthesized alleles (new UUID, no parents, no fitness)
         """
         # Ensure self is in population (validation in synthesize_genomes will check)
-        return synthesize_genomes(self, population, handler, predicate, **kwargs)
+        return synthesize_genomes(self, population, handler, predicate, kwargs)

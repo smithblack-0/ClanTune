@@ -7,7 +7,7 @@ producing ancestry declarations consumed by crossbreeding strategies and orchest
 
 import math
 import random
-from typing import Any, Callable, List, Optional, Tuple
+from typing import List, Tuple
 from uuid import UUID
 
 from .abstract_strategies import AbstractAncestryStrategy
@@ -23,24 +23,21 @@ class TournamentSelection(AbstractAncestryStrategy):
     Sampling is with replacement so the same genome can win multiple tournaments.
     """
 
-    def __init__(
-        self,
-        tournament_size: int = 3,
-        num_parents: int = 7,
-        _choose: Optional[Callable[[List], Any]] = None,
-    ):
+    def __init__(self, tournament_size: int = 3, num_parents: int = 7):
         """
         Args:
             tournament_size: Number of genomes sampled per tournament. Must be >= 2.
             num_parents: Number of tournaments to run; determines probability denominators.
-            _choose: Sampling hook — replaces random.choice in tests. Receives a list
-                     and returns one element. Called tournament_size times per tournament.
         """
         if tournament_size < 2:
             raise ValueError("Tournament size must be at least 2")
         self.tournament_size = tournament_size
         self.num_parents = num_parents
-        self._choose = _choose if _choose is not None else (lambda lst: random.choice(lst))
+
+    @staticmethod
+    def _choose(population: List[Genome]) -> Genome:
+        """Select one genome from population uniformly at random. Override in tests for determinism."""
+        return random.choice(population)
 
     def select_ancestry(
         self, my_genome: Genome, population: List[Genome]

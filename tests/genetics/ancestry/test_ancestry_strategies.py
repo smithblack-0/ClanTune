@@ -2,8 +2,9 @@
 Tests for concrete ancestry strategies.
 
 Tests verify algorithm correctness through public interfaces only. TournamentSelection
-uses a _choose injection hook for deterministic verification of probability math.
-All other strategies are deterministic and verified with exact computations.
+uses a _DeterministicTournament test subclass overriding _choose for deterministic
+probability math verification. All other strategies are deterministic and verified
+with exact computations.
 """
 
 import math
@@ -33,21 +34,21 @@ def make_population(*fitnesses: float) -> List[Genome]:
     return [make_genome(f) for f in fitnesses]
 
 
-def make_choose_sequence(*element_indices):
+class _DeterministicTournament(TournamentSelection):
     """
-    Build a deterministic _choose hook for TournamentSelection testing.
+    Test subclass overriding _choose for deterministic algorithm verification.
 
-    Returns a callable that, on each call, returns lst[next_index] from the
-    provided sequence. Called tournament_size * num_parents times total (once per
-    tournament slot). Allows exact verification of win_count / num_parents
-    probability math without stochastic randomness.
+    Serves population[index] in sequence from a provided index list. Called
+    tournament_size * num_parents times total (once per tournament slot).
+    Allows exact verification of win probability math without stochastic randomness.
     """
-    it = iter(element_indices)
 
-    def choose(lst):
-        return lst[next(it)]
+    def __init__(self, index_sequence, **kwargs):
+        super().__init__(**kwargs)
+        self._it = iter(index_sequence)
 
-    return choose
+    def _choose(self, population):
+        return population[next(self._it)]
 
 
 # --- TournamentSelection ---
@@ -111,8 +112,7 @@ class TestTournamentSelectionProbabilityMath:
         # tournament_size=2, num_parents=2 → 4 calls total
         # Both tournaments: [pop[0], pop[1]] and [pop[0], pop[2]] → genome[0] wins both
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence(0, 1, 0, 2)
-        strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
+        strategy = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -124,8 +124,7 @@ class TestTournamentSelectionProbabilityMath:
         # Tournament 1: [pop[0], pop[1]] → genome[0] wins (fitness 1.0 < 2.0)
         # Tournament 2: [pop[1], pop[2]] → genome[1] wins (fitness 2.0 < 3.0)
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence(0, 1, 1, 2)
-        strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
+        strategy = _DeterministicTournament([0, 1, 1, 2], tournament_size=2, num_parents=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -138,8 +137,7 @@ class TestTournamentSelectionProbabilityMath:
         # Tournaments: [0,1], [0,2], [0,1], [1,2] → winners: 0, 0, 0, 1
         # win_counts: {0: 3, 1: 1, 2: 0} → probs: {0: 0.75, 1: 0.25, 2: 0.0}
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence(0, 1, 0, 2, 0, 1, 1, 2)
-        strategy = TournamentSelection(tournament_size=2, num_parents=4, _choose=choose)
+        strategy = _DeterministicTournament([0, 1, 0, 2, 0, 1, 1, 2], tournament_size=2, num_parents=4)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -150,8 +148,7 @@ class TestTournamentSelectionProbabilityMath:
     def test_repeated_winner_accumulates_probability(self):
         # All 8 calls return genome[0] → wins all 4 tournaments → prob = 1.0
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence(0, 0, 0, 0, 0, 0, 0, 0)
-        strategy = TournamentSelection(tournament_size=2, num_parents=4, _choose=choose)
+        strategy = _DeterministicTournament([0] * 8, tournament_size=2, num_parents=4)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -161,8 +158,7 @@ class TestTournamentSelectionProbabilityMath:
         # Population in non-fitness order: [3.0, 1.0, 2.0]
         # Both tournaments pick genome[1] (best fitness) → wins all
         population = make_population(3.0, 1.0, 2.0)
-        choose = make_choose_sequence(1, 2, 1, 0)
-        strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
+        strategy = _DeterministicTournament([1, 2, 1, 0], tournament_size=2, num_parents=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         for i, (prob, uuid) in enumerate(ancestry):
@@ -175,14 +171,10 @@ class TestTournamentSelectionProbabilityMath:
         # TournamentSelection doesn't use my_genome; identical sequences yield identical probs
         population = make_population(1.0, 2.0, 3.0)
 
-        strategy1 = TournamentSelection(
-            tournament_size=2, num_parents=2, _choose=make_choose_sequence(0, 1, 0, 2)
-        )
+        strategy1 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
         ancestry1 = strategy1.select_ancestry(population[0], population)
 
-        strategy2 = TournamentSelection(
-            tournament_size=2, num_parents=2, _choose=make_choose_sequence(0, 1, 0, 2)
-        )
+        strategy2 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
         ancestry2 = strategy2.select_ancestry(population[2], population)
 
         probs1 = {uuid: prob for prob, uuid in ancestry1}

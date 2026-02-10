@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests cleaned to only assert responsibilities contracted by the class under test: removed UUID, fitness, and ancestry assertions from individual strategy tests (these belong in orchestrator tests only)
 
 ### Fixed
-- **Methodology failure and recovery:** Abstract strategies were initially implemented and tested without a full spec→code→tests audit. Tests were written asserting behaviors (UUID generation, fitness clearing, ancestry attachment) that the spec assigns to StrategyOrchestrator, not individual strategies. A blind fix was attempted by patching abstract_strategies.py without first auditing the spec — caught and reverted. The correct path (spec audit → spec fixes → code alignment → test cleanup) was then followed in full. All misplaced responsibility assertions were removed from strategy-level tests; orchestrator tests correctly cover these end-to-end behaviors.
+- **Methodology failure and recovery:** An LLM implementing genome blindly fixed breaking tests in abstract_strategies rather than stopping at the module boundary. This corrupted both genome spec consistency and abstract_strategies simultaneously. Recovery required redoing genome correctly (spec→code→tests→audit→commit as a single unit), then abstract_strategies as a separate unit — approximately 3x the work that correct discipline would have required. Root cause: touching files outside the current unit of work before that unit was finished and committed. The correct discipline is one module at a time — spec first, then code and tests in alignment, audit, commit — accepting that other modules break in the meantime rather than reaching out to fix them prematurely.
 
 ### Fixed
 

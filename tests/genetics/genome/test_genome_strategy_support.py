@@ -140,7 +140,7 @@ class TestUpdateAlleles:
         def scale(allele, factor):
             return allele.with_value(allele.value * factor)
 
-        result = genome.update_alleles(scale, factor=10.0)
+        result = genome.update_alleles(scale, kwargs={'factor': 10.0})
 
         assert result.as_hyperparameters()["lr"] == 0.1
 
@@ -251,7 +251,7 @@ class TestSynthesizeNewAlleles:
             avg = sum(s.value for s in sources) / len(sources)
             return template.with_value(avg * scale)
 
-        result = genome1.synthesize_new_alleles([genome1, genome2], scale_average, scale=10.0)
+        result = genome1.synthesize_new_alleles([genome1, genome2], scale_average, kwargs={'scale': 10.0})
 
         assert result.as_hyperparameters()["lr"] == 0.15
 

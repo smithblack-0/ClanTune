@@ -321,7 +321,7 @@ class TestEndToEndWorkflows:
             return allele.with_value(target_value)
 
         synchronized = [
-            genome.update_alleles(set_to_average, target_value=avg_lr)
+            genome.update_alleles(set_to_average, kwargs={'target_value': avg_lr})
             for genome in genomes
         ]
 

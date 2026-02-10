@@ -421,8 +421,6 @@ class AbstractAllele(ABC):
             New allele instance constructed with overridden arguments
         """
         pass
-
-
 class FloatAllele(AbstractAllele):
     """
     Floating point allele with linear semantics.

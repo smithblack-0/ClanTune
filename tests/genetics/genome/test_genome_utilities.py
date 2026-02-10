@@ -68,7 +68,7 @@ class TestWalkGenomeAlleles:
         def scale_values(alleles, scale):
             return [a.value * scale for a in alleles]
 
-        results = list(walk_genome_alleles([genome1, genome2], scale_values, scale=10.0))
+        results = list(walk_genome_alleles([genome1, genome2], scale_values, kwargs={'scale': 10.0}))
 
         assert results == [[0.1, 0.2]]
 
@@ -193,7 +193,7 @@ class TestSynthesizeGenomes:
             avg = sum(s.value for s in sources) / len(sources)
             return template.with_value(avg * scale)
 
-        result = synthesize_genomes(genome1, [genome1, genome2], scale_average, scale=10.0)
+        result = synthesize_genomes(genome1, [genome1, genome2], scale_average, kwargs={'scale': 10.0})
 
         assert result.as_hyperparameters()["lr"] == 0.15  # (0.015 avg) * 10
 
@@ -304,7 +304,7 @@ class TestHandlerAdaptation:
         def multi_kwarg_handler(alleles, scale, offset):
             return alleles[0].value * scale + offset
 
-        results = list(walk_genome_alleles([genome1], multi_kwarg_handler, scale=10.0, offset=5.0))
+        results = list(walk_genome_alleles([genome1], multi_kwarg_handler, kwargs={'scale': 10.0, 'offset': 5.0}))
 
         assert results == [0.1 + 5.0]
 
@@ -315,6 +315,6 @@ class TestHandlerAdaptation:
         def multi_kwarg_handler(template, sources, scale, offset):
             return template.with_value(sources[0].value * scale + offset)
 
-        result = synthesize_genomes(genome1, [genome1], multi_kwarg_handler, scale=10.0, offset=5.0)
+        result = synthesize_genomes(genome1, [genome1], multi_kwarg_handler, kwargs={'scale': 10.0, 'offset': 5.0})
 
         assert result.as_hyperparameters()["lr"] == 0.1 + 5.0

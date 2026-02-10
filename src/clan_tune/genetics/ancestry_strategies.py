@@ -7,7 +7,7 @@ producing ancestry declarations consumed by crossbreeding strategies and orchest
 
 import math
 import random
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 from uuid import UUID
 
 from .abstract_strategies import AbstractAncestryStrategy
@@ -26,36 +26,29 @@ class TournamentSelection(AbstractAncestryStrategy):
     def __init__(
         self,
         tournament_size: int = 3,
-        num_parents: int = 2,
-        _choose: Optional[Callable[[List[int], int], List[int]]] = None,
+        num_parents: int = 7,
+        _choose: Optional[Callable[[List], Any]] = None,
     ):
         """
         Args:
             tournament_size: Number of genomes sampled per tournament. Must be >= 2.
             num_parents: Number of tournaments to run; determines probability denominators.
-            _choose: Sampling hook — replaces random.choices in tests. Receives
-                     (indices, k) and returns sampled indices list.
+            _choose: Sampling hook — replaces random.choice in tests. Receives a list
+                     and returns one element. Called tournament_size times per tournament.
         """
         if tournament_size < 2:
             raise ValueError("Tournament size must be at least 2")
         self.tournament_size = tournament_size
         self.num_parents = num_parents
-        self._choose = _choose
+        self._choose = _choose if _choose is not None else (lambda lst: random.choice(lst))
 
     def select_ancestry(
         self, my_genome: Genome, population: List[Genome]
     ) -> List[Tuple[float, UUID]]:
-        population_size = len(population)
-        indices = list(range(population_size))
         win_counts = {genome.uuid: 0 for genome in population}
 
         for _ in range(self.num_parents):
-            if self._choose is not None:
-                sampled_indices = self._choose(indices, self.tournament_size)
-            else:
-                sampled_indices = random.choices(indices, k=self.tournament_size)
-
-            tournament = [population[i] for i in sampled_indices]
+            tournament = [self._choose(population) for _ in range(self.tournament_size)]
             winner = min(tournament, key=lambda g: g.fitness)
             win_counts[winner.uuid] += 1
 

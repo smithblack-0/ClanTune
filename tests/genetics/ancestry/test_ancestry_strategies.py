@@ -33,18 +33,19 @@ def make_population(*fitnesses: float) -> List[Genome]:
     return [make_genome(f) for f in fitnesses]
 
 
-def make_choose_sequence(*index_sequences):
+def make_choose_sequence(*element_indices):
     """
     Build a deterministic _choose hook for TournamentSelection testing.
 
-    Returns a callable that serves the given index sequences in order on successive
-    calls. Each sequence is one tournament's sampled indices. Allows exact verification
-    of win_count / num_parents probability math without stochastic randomness.
+    Returns a callable that, on each call, returns lst[next_index] from the
+    provided sequence. Called tournament_size * num_parents times total (once per
+    tournament slot). Allows exact verification of win_count / num_parents
+    probability math without stochastic randomness.
     """
-    it = iter(index_sequences)
+    it = iter(element_indices)
 
-    def choose(indices, k):
-        return next(it)
+    def choose(lst):
+        return lst[next(it)]
 
     return choose
 
@@ -70,7 +71,7 @@ class TestTournamentSelectionConstructorValidation:
     def test_default_parameters_accepted(self):
         strategy = TournamentSelection()
         assert strategy.tournament_size == 3
-        assert strategy.num_parents == 2
+        assert strategy.num_parents == 7
 
 
 class TestTournamentSelectionOutputStructure:
@@ -78,26 +79,26 @@ class TestTournamentSelectionOutputStructure:
 
     def test_output_length_equals_population_size(self):
         population = make_population(1.0, 2.0, 3.0)
-        strategy = TournamentSelection(_choose=make_choose_sequence([0, 1], [0, 1]))
+        strategy = TournamentSelection()
         ancestry = strategy.select_ancestry(population[0], population)
         assert len(ancestry) == len(population)
 
     def test_uuid_at_index_matches_population_genome(self):
         population = make_population(1.0, 2.0, 3.0)
-        strategy = TournamentSelection(_choose=make_choose_sequence([0, 1], [0, 1]))
+        strategy = TournamentSelection()
         ancestry = strategy.select_ancestry(population[0], population)
         for i, (prob, uuid) in enumerate(ancestry):
             assert uuid == population[i].uuid
 
     def test_probabilities_are_nonnegative(self):
         population = make_population(1.0, 2.0, 3.0)
-        strategy = TournamentSelection(_choose=make_choose_sequence([0, 1], [1, 2]))
+        strategy = TournamentSelection()
         ancestry = strategy.select_ancestry(population[0], population)
         assert all(prob >= 0.0 for prob, _ in ancestry)
 
     def test_probabilities_sum_to_one(self):
         population = make_population(1.0, 2.0, 3.0)
-        strategy = TournamentSelection(_choose=make_choose_sequence([0, 1], [1, 2]))
+        strategy = TournamentSelection()
         ancestry = strategy.select_ancestry(population[0], population)
         total = sum(prob for prob, _ in ancestry)
         assert abs(total - 1.0) < 1e-9
@@ -107,9 +108,10 @@ class TestTournamentSelectionProbabilityMath:
     """Tests that win counts translate correctly to probabilities via win_count / num_parents."""
 
     def test_single_winner_receives_probability_one(self):
-        # Both tournaments: indices [0,1] → genome[0] wins (fitness 1.0 < 2.0)
+        # tournament_size=2, num_parents=2 → 4 calls total
+        # Both tournaments: [pop[0], pop[1]] and [pop[0], pop[2]] → genome[0] wins both
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence([0, 1], [0, 2])
+        choose = make_choose_sequence(0, 1, 0, 2)
         strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
         ancestry = strategy.select_ancestry(population[0], population)
 
@@ -119,9 +121,10 @@ class TestTournamentSelectionProbabilityMath:
         assert probs[population[2].uuid] == 0.0
 
     def test_split_wins_produce_equal_probabilities(self):
-        # Tournament 1: [0,1] → genome[0] wins; Tournament 2: [1,2] → genome[1] wins
+        # Tournament 1: [pop[0], pop[1]] → genome[0] wins (fitness 1.0 < 2.0)
+        # Tournament 2: [pop[1], pop[2]] → genome[1] wins (fitness 2.0 < 3.0)
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence([0, 1], [1, 2])
+        choose = make_choose_sequence(0, 1, 1, 2)
         strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
         ancestry = strategy.select_ancestry(population[0], population)
 
@@ -131,11 +134,11 @@ class TestTournamentSelectionProbabilityMath:
         assert probs[population[2].uuid] == 0.0
 
     def test_three_wins_out_of_four_gives_correct_fraction(self):
-        # Tournaments: [0,1], [0,2], [0,1], [1,2]
-        # Winners: genome[0], genome[0], genome[0], genome[1]
-        # win_counts: {0: 3, 1: 1, 2: 0}
+        # tournament_size=2, num_parents=4 → 8 calls total
+        # Tournaments: [0,1], [0,2], [0,1], [1,2] → winners: 0, 0, 0, 1
+        # win_counts: {0: 3, 1: 1, 2: 0} → probs: {0: 0.75, 1: 0.25, 2: 0.0}
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence([0, 1], [0, 2], [0, 1], [1, 2])
+        choose = make_choose_sequence(0, 1, 0, 2, 0, 1, 1, 2)
         strategy = TournamentSelection(tournament_size=2, num_parents=4, _choose=choose)
         ancestry = strategy.select_ancestry(population[0], population)
 
@@ -145,9 +148,9 @@ class TestTournamentSelectionProbabilityMath:
         assert probs[population[2].uuid] == 0.0
 
     def test_repeated_winner_accumulates_probability(self):
-        # All four tournaments produce genome[0] → prob = 4/4 = 1.0
+        # All 8 calls return genome[0] → wins all 4 tournaments → prob = 1.0
         population = make_population(1.0, 2.0, 3.0)
-        choose = make_choose_sequence([0, 1], [0, 2], [0, 1], [0, 2])
+        choose = make_choose_sequence(0, 0, 0, 0, 0, 0, 0, 0)
         strategy = TournamentSelection(tournament_size=2, num_parents=4, _choose=choose)
         ancestry = strategy.select_ancestry(population[0], population)
 
@@ -155,33 +158,30 @@ class TestTournamentSelectionProbabilityMath:
         assert probs[population[0].uuid] == 1.0
 
     def test_original_population_order_preserved_in_output(self):
-        # Provide population in non-fitness order: [3.0, 1.0, 2.0]
-        # Best genome is population[1]; output should still index by original order
+        # Population in non-fitness order: [3.0, 1.0, 2.0]
+        # Both tournaments pick genome[1] (best fitness) → wins all
         population = make_population(3.0, 1.0, 2.0)
-        choose = make_choose_sequence([1, 2], [1, 0])
+        choose = make_choose_sequence(1, 2, 1, 0)
         strategy = TournamentSelection(tournament_size=2, num_parents=2, _choose=choose)
         ancestry = strategy.select_ancestry(population[0], population)
 
-        # Check UUIDs are at original positions
         for i, (prob, uuid) in enumerate(ancestry):
             assert uuid == population[i].uuid
 
-        # genome[1] wins both: prob = 1.0
         probs = {uuid: prob for prob, uuid in ancestry}
         assert probs[population[1].uuid] == 1.0
 
     def test_my_genome_does_not_affect_selection_outcome(self):
-        # TournamentSelection doesn't use my_genome in its algorithm;
-        # same _choose sequence from different my_genome values yields same probs
+        # TournamentSelection doesn't use my_genome; identical sequences yield identical probs
         population = make_population(1.0, 2.0, 3.0)
 
         strategy1 = TournamentSelection(
-            tournament_size=2, num_parents=2, _choose=make_choose_sequence([0, 1], [0, 2])
+            tournament_size=2, num_parents=2, _choose=make_choose_sequence(0, 1, 0, 2)
         )
         ancestry1 = strategy1.select_ancestry(population[0], population)
 
         strategy2 = TournamentSelection(
-            tournament_size=2, num_parents=2, _choose=make_choose_sequence([0, 1], [0, 2])
+            tournament_size=2, num_parents=2, _choose=make_choose_sequence(0, 1, 0, 2)
         )
         ancestry2 = strategy2.select_ancestry(population[2], population)
 

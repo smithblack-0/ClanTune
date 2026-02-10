@@ -87,9 +87,11 @@ class EliteBreeds(AbstractAncestryStrategy):
         thrive_set = set(sorted_pop[: self.thrive_count])
         die_set = set(sorted_pop[-self.die_count :]) if self.die_count > 0 else set()
 
+        my_genome_survives = my_genome not in die_set
+
         ancestry = []
         for genome in population:
-            if my_genome not in die_set:
+            if my_genome_survives:
                 prob = 1.0 if genome is my_genome else 0.0
             else:
                 prob = 1.0 / self.thrive_count if genome in thrive_set else 0.0

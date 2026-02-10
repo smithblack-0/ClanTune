@@ -8,12 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Abstract strategy classes (src/clan_tune/genetics/abstract_strategies.py) providing hook-based evolution framework
+- AbstractStrategy base class with setup_genome and handle_setup infrastructure for metalearning
+- AbstractAncestryStrategy with parent selection orchestration and validation
+- AbstractCrossbreedingStrategy with allele synthesis delegation to genome utilities
+- AbstractMutationStrategy with population/ancestry context injection via closures
+- StrategyOrchestrator for composing ancestry, crossbreeding, and mutation strategies
+- Comprehensive test suite for abstract strategies (56 tests across 5 test files)
+- Black-box testing for all strategy classes using minimal concrete test doubles
 - Concrete strategy specifications (documents/mutation_strategies.md) describing 4 mutation strategies: GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation
 - Concrete strategy specifications (documents/ancestry_strategies.md) describing 4 ancestry strategies: TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection
 - Concrete strategy specifications (documents/crossbreeding_strategies.md) describing 4 crossbreeding strategies: WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
 - Documentation for each strategy includes algorithm descriptions, parameter guidance, metalearning support, usage recommendations, and strategy combination advice
 
 ### Changed
+- Updated CLAUDE.md reference directory to include new strategy specification documents
 - Concrete strategy specifications revised for correctness and completeness:
   - Added type-specific mutation handling section to mutation_strategies.md (FloatAllele, IntAllele, LogFloatAllele contracts)
   - Replaced tutorial code with complete contract specifications for metalearning in all mutation strategies

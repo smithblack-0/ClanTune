@@ -38,6 +38,10 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 **Reference directory (consult documents/ as needed for specific work):**
 
 - documents/abstract_strategies.md - abstract base classes for strategy system (ancestry, crossbreeding, mutation)
+- documents/ancestry_strategies.md - concrete ancestry strategies (TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection)
+- documents/crossbreeding_strategies.md - concrete crossbreeding strategies (WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover)
+- documents/mutation_strategies.md - concrete mutation strategies (GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation)
+- documents/concrete_strategies_plan.md - architectural decisions and composability principles for concrete strategies
 - documents/Allele.md - allele design and mutation behavior
 - documents/expression.md - how genomes express into training hyperparameters
 - documents/genetics_lifecycle.md - system architecture, component responsibilities, and evolution flow
@@ -543,7 +547,16 @@ Writing specs requires synthesis before generation. These rules fundamentally ch
 
 ### Core Philosophy
 
-**Minimal wording to unambiguous intent.** Every word must reduce ambiguity. If removing a word creates confusion, keep it. If it doesn't, cut it. This requires synthesis, not information dumping.
+**Minimal wording to unambiguous intent.** Every word must reduce ambiguity. If removing a word creates confusion, keep it. If it doesn't, cut it. This requires synthesis, not information dumping. 
+
+### Main style
+
+All documents, sections, subsections, etc are fractally written in this pattern
+
+1. * What is it and why is it here. This answers not what the thing is, but why is the informtion being presented in the document this way, without explicitly calling it out. How it exists is explicitly excluded. IT contextualizes
+2. Core technical artifact. List, code, method, details, whatever. 
+3. Explain how it exists. Unravel the consequences. These should all be at the same abstraction level. If it is overloaded, step up a level and unpack them in the varidac subpoints. If there is nothing, you might be oversplitting.
+4. Any number of additional subheadings can further unpack the content into subnuances such as adapter strategy guidance or anything else.
 
 ### The Meta-Rules
 
@@ -658,4 +671,316 @@ This report helps maintain visibility and allows the user to review git history 
   ```
   wsl -d Ubuntu-24.04 /home/chris/.virtualenvs/ClanTune/bin/python -m pytest tests/ -v
   ```
-- Do git through windows. 
+- Do git through windows.
+
+---
+
+# How to Write Specification Documents
+
+Specification writing requires extremely high levels of guidance for LLM productivity. This seciton is how to write proper specifications, and must be followed with the force of law. These rules are forcing functions used when writing  natural language formal specifications to produce pain; that pain is a warning sign something is wrong in the plan.
+
+**Core Philosophy:** Minimal wording to unambiguous intent. Every word must reduce ambiguity. If removing a word creates confusion, keep it. If it doesn't, cut it. This requires synthesis, not information dumping.
+
+The most important operational point is there is not a fixed rule, but a set of regularly applied philosophy from which rules emerge. Thus, **Absorbing the philosophy is more important than anchoring on the examples**
+
+**These rules fundamentally change how documentation work happens. Failure to absorb this is a high class error**
+
+### What is a Block
+
+The "Block" is a conceptual data structure used to define how we write a specification. Do not confuse it for any other programming cases used elsewhere in the project. 
+
+A block is any piece of documentation with a single abstract responsibility. All parts of a block belong at the same abstraction level. To handle multiple abstraction levels, you must fractally apply the pattern within smaller sub-blocks; this means a block may consist of 'show off class' conceptually when you read the headings. Think managing abstraction and you are on the right track.
+
+**Examples of blocks:**
+- A class specification (contains method blocks); abstraction level is what is the class, what are the methods, and how do they interact. How a method is done goes inside the method blocks.
+- A method specification (contains algorithm blocks, parameter blocks). How this is orchestrated at a broad level is not relevant unless it is a needed contract.
+- An introductory paragraph (all sentences at same abstraction level) - still goes through four step pattern shown later.
+- An algorithm description (steps at same level of detail)/
+- A technique explanation (concepts at same level)
+
+**Block nesting:**
+- Class block contains method blocks
+- Method block contains signature block, algorithm block, edge case blocks
+- Each nested block follows the 4-step pattern at its own abstraction level
+
+**Abstraction level consistency:**
+All content within a block stays at the same abstraction level. If you find yourself mixing high-level philosophy with low-level implementation details, you need to split into nested blocks - philosophy at outer level, implementation details in inner blocks, and possibly varidac arguments for diversions as mentioned in the following section.
+
+**Block length**
+
+There is, and should never be, a fixed block length. A block is as long or short as needed to deliver its primary responsibility. 
+
+## Fractal Descent.
+
+Every block of documentation follows a fractal pattern which progresses through four distinct phases of information reveal. Information must be revealed in this order and point one must alwayss exist. Points 1, 2, 3 are required, though can be brief if appropriate. 
+
+1. **Contextualization** - By default, no block, including this one, is allowed to exist if it does not support the broader project. What interconnections to other methods and needed functionality allowed this block to be put into place? This justifies the block's existence by showing what contracts it fulfills, what it enables downstream, what architectural needs it addresses. How the block exists is explicitly excluded here - save that for step 3. It can be as short as "implements the contracted method" or a long di
+2. **Core technical artifact** - The actual technical thing. Could be code, method signature, list, data structure, algorithm specification, whatever is the primary technical content of this block. In programming terms, it is the **responsibility** delivered in concise and parsable form. Keep in mind the rest of the block must then be at the same abstraction level. Make subblocks if deeper recursion is needed. 
+3. **Explain how it exists** - Unravel the consequences of the technical artifact. Show how it works, what it enables, how pieces interact. All content at this level should be at the same abstraction level. If overloaded, step up a level and unpack in variadic subpoints. If there's nothing meaningful to say, you might be over-splitting.
+4. **Variadic additional details** - Any number of additional subheadings that further unpack the content into nuances such as edge cases, usage guidance, metalearning details, when-to-use recommendations, whatever is needed.
+
+**Implementation improvisation is required**
+
+The pattern dictates information ORDER, not presentation format. Classes often use subheadings (## Method Name) because methods need deep unpacking. Intros often use paragraphs because that's most concise. Methods often show signature then algorithm because code is the artifact. These forms emerge from satisfying ALL constraints (DRY, progressive disclosure, minimal wording, fractal pattern) simultaneously - they are NOT templates to copy. Ultimately, the point is use whatever makes sense, but lay out information in this order.
+
+The other rules (DRY, progressive disclosure, minimal wording) FORCE the right form. If you follow all constraints simultaneously, the appropriate form becomes obvious for each block. If excessive friction is occuring, it is a warning sign something is wrong and should be discussed.
+
+**Warning on overanchoring**
+
+**Note:** The four stages do not necessarily mean or not mean four distinct sections or paragraphs. Information is presented in this SEQUENCE, flowing however makes most sense. A single paragraph might contain all four stages. A complex method might split stage 3 across multiple subsections. The pattern is about information ORDER, not structural rigidity.
+
+## Meta-Rules
+
+1. **Progressive disclosure** - Start broad (overview, why it exists), narrow progressively (structure, then details), stop when unambiguous. Don't over-specify.
+2. **DRY everything** - State common patterns ONCE. Identify where each pattern belongs, state it there, reference it elsewhere. Never repeat.
+3. **Organize by: Contracts → Relationships → Invariants**
+   - Contracts: What signatures exist, what they return, what they require
+   - Relationships: How components delegate to each other
+   - Invariants: Rules that always hold
+4. **Pointed philosophy** - WHY something exists, stated concisely where relevant. "This enables X" not "X is important because...". Philosophy reduces need for technical detail by providing context.
+5. **Examples show primary responsibilities only** - Minimal code demonstrating what the hook receives and returns. NOT complete implementations. Just enough to be unambiguous.
+6. **Delegate where you delegate** - When X delegates to Y, state "delegates to Y, passing Z". Don't explain Y's internals (that's Y's spec). Focus on X's coordination role.
+7. **Organization is fractal** - Structure is fixed by purpose (overview → detail), not by headings. At each level, ask: "Within THIS subtask, what combination of abstract and detailed best accomplishes the job?" Headings emerge from answering that question recursively.
+
+## Operational Consequences
+
+**You can't write linearly.** These rules fundamentally change how you work:
+1. **Preparation IS synthesis** - Before writing a single word:
+   - Read ALL related specs completely
+   - Map the contract graph (what provides what, what delegates to what)
+   - Identify ALL common patterns across components
+   - Synthesize the big picture (how pieces relate, what the invariants are)
+   - Know the ownership boundaries
+   - This isn't optional prep - it's THE work
+2. **The spec is a dependency graph** - You can't specify X without understanding Y's contract. Every statement has dependencies. Must hold the whole web before placing pieces.
+3. **Examples come last** - You can't write examples until you've synthesized what the PRIMARY responsibility is and eliminated everything that's NOT primary.
+4. **Writing is placement** - Once you've synthesized:
+   - PLACE each fact in one location
+   - REFER to it elsewhere, not repeat it
+   - Common patterns typically go in contracts/overview
+   - Specific details go in component sections
+5. **Can't write section N without understanding sections 1 through M** - Because common patterns get stated in overview/contracts, you must know ALL details before writing the summary. Top-down writing requires bottom-up understanding.
+6. **Verbosity indicates missing context** - When you need many words to be unambiguous, you're often missing pointed philosophy. Brief context ("This enables X") can eliminate paragraphs of technical detail.
+7. **Duplication indicates incomplete synthesis** - If you say the same thing twice, you haven't identified the common pattern. The fix isn't editing - it's re-synthesizing to find where it belongs ONCE.
+8. **Writing reveals synthesis gaps** - When you can't be minimal AND unambiguous simultaneously:
+   - You don't understand it yet (read more)
+   - The design is actually ambiguous (pause and ask)
+   - You're over-specifying (cut it)
+   - Not a writing problem - a synthesis problem
+9. **Edit by re-synthesizing** - First draft typically has duplication because you haven't fully synthesized. Second pass isn't "make it sound better" - it's "find the common patterns I missed and state them once."
+
+## The Process
+
+1. **Synthesize first** - Read everything, map contracts, identify patterns, understand relationships
+2. **Place, don't generate** - Each fact goes in one location
+3. **Edit by re-synthesizing** - Find duplication, find missing patterns, state them once
+4. **Examples demonstrate primary responsibilities** - Write these last, once you know what matters
+
+---
+
+## Example: Fractal Pattern in Practice
+
+This example uses AbstractAncestryStrategy from abstract_strategies.md to demonstrate how the fractal pattern applies at multiple nesting levels. The key insight: when you collapse sub-blocks, you can see how the PARENT block follows the pattern by dispatching to them.
+
+### Full Specification Structure
+
+Here's how AbstractAncestryStrategy appears in the actual specification (showing structure, not every word):
+
+```
+## AbstractAncestryStrategy
+
+Separates parent selection (declare) from allele synthesis (interpret). Ancestry
+strategies decide which genomes become parents and their contribution probabilities;
+crossbreeding strategies interpret those decisions to synthesize allele values. This
+decoupling keeps genome package ignorant of model/optimizer crossbreeding - selection
+is about fitness, synthesis is about values.
+
+The declare-interpret paradigm: AbstractAncestryStrategy declares "these parents with
+this strength" producing an ancestry data structure. Downstream systems interpret that
+declaration. This separation enables mixing selection strategies with synthesis
+strategies independently.
+
+An ancestry is a list of population length containing for each population member the
+probability assigned to that parent's contribution and the UUID of the parent. The sum
+of probabilities typically equals 1.0 (though not enforced - interpreters decide).
+UUIDs identify population members when ancestry was decided.
+
+The owned responsibility of the abstract class is orchestration into the concrete user hook.
+
+[Type alias showing ancestry structure]
+
+Abstract class is Stateless. Concrete subclasses are expected to include various
+thresholds for making decisions.
+
+### apply_strategy
+
+Implements the abstract apply_strategy contract from AbstractStrategy for parent
+selection. Orchestrates ancestry selection by dispatching to select_ancestry hook.
+This is declaration, not synthesis - returns ancestry structure, not a genome.
+
+[Method signature]
+
+Calls self.select_ancestry(my_genome, population) and returns ancestry directly.
+Crossbreeding strategies and orchestrators consume this ancestry to synthesize
+offspring and reconstruct model state. Single responsibility: decide parent contributions.
+
+**Why not just implement apply strategy directly in concrete classes?**
+
+While this could just be implemented by subclasses directly, using the hook allocation
+schema keeps code consistent. Also gives a chance to throw if fitness is not fully set
+or my_genome is not in population, or return from user is not of population length.
+
+### select_ancestry
+
+Abstract hook that concrete strategies must implement to decide parent contribution
+probabilities. This is where fitness-based selection logic lives - tournament selection,
+fitness-weighted sampling, diversity-based filtering, etc. Fitness will be used to make
+this selection.
+
+[Method signature]
+
+Receives my_genome (genome being evolved) and population (all genomes in rank order).
+All genomes will have a set fitness; lower fitness corresponds to better, and validation
+loss is the default pattern.
+
+Returns ancestry as [(probability, uuid), ...] in rank order where:
+- List length equals population size
+- Index corresponds to rank
+- Entry (probability, uuid) indicates that rank's contribution
+- Probability 0.0 means no contribution from that parent
+- Sum of probabilities typically equals 1.0 (not enforced - interpreters decide)
+
+**Implementation pattern:** Concrete strategies typically sort population by fitness,
+apply selection logic, then construct ancestry list in original rank order with selected
+parents having non-zero probabilities. Injection of my_genome allows decisions to be
+made about survivorship.
+
+### Metalearning
+
+It is recommended, but not strictly required, for concrete subclasses to implement
+their own metalearning strategies. This would consist of overriding the default setup
+hook to inject additional metalearning alleles...
+
+[Detailed guidance on metalearning implementation]
+
+### Contracts
+
+- Input: my_genome and population (my_genome should be in population)
+- Output: ancestry declaration (not a genome - pure selection)
+- Fitness must be set on genomes before calling - selection logic depends on fitness values
+- Ancestry list length equals population size, maintains rank order
+- Probabilities indicate contribution (0.0 = excluded)
+- No allele manipulation - selection only, not synthesis
+- No metadata manipulation - No access to alleles means no way to do metalearning
+```
+
+### Condensed View: Class-Level Dispatch
+
+Now collapse the sub-blocks to see how the CLASS-level block follows the fractal pattern:
+
+```
+## AbstractAncestryStrategy
+
+[STEP 1 - Contextualization: 4 paragraphs]
+- Why this exists: Separates parent selection (declare) from synthesis (interpret)
+- What it enables: Declare-interpret paradigm, mixing selection/synthesis strategies independently
+- What ancestry is: List of (probability, uuid) tuples declaring parent contributions
+- Owned responsibility: Orchestration into concrete user hook
+
+[STEP 2 - Technical artifacts: Method specifications as subblocks]
+  ### apply_strategy
+  [Subblock: Implements abstract pattern, orchestrates to select_ancestry hook]
+
+  ### select_ancestry
+  [Subblock: Abstract hook, concrete strategies implement parent selection logic]
+
+[STEP 3 - How it exists: Guidance and contracts]
+  ### Metalearning
+  [Subblock: Guidance for concrete strategies on implementing metalearning]
+
+  ### Contracts
+  [Subblock: Input/output contracts, invariants, boundary definitions]
+```
+
+**What you can see when condensed:**
+1. Opening paragraphs = contextualization (why this class exists in the architecture)
+2. Method subsections = technical artifacts (the primary responsibilities)
+3. Metalearning + Contracts = how it exists (guidance for using/implementing the class)
+4. No explicit step 4 needed - the two method subsections already unpack everything needed
+
+The class-level block dispatches to method blocks. Each method block is its own fractal unit.
+
+### Unpacking One Subblock: select_ancestry
+
+Now expand one method subblock to see how IT follows the fractal pattern:
+
+```
+### select_ancestry
+
+[STEP 1 - Contextualization]
+Abstract hook that concrete strategies must implement to decide parent contribution
+probabilities. This is where fitness-based selection logic lives - tournament selection,
+fitness-weighted sampling, diversity-based filtering, etc. Fitness will be used to make
+this selection.
+
+[STEP 2 - Technical artifact]
+python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+
+Receives my_genome (genome being evolved) and population (all genomes in rank order).
+All genomes will have a set fitness; lower fitness corresponds to better. Returns ancestry.
+
+[STEP 3 - How it exists]
+
+(Notice how the transition happened midway through)
+
+Returns ancestry as [(probability, uuid), ...] in rank order where:
+- List length equals population size
+- Index corresponds to rank
+- Entry (probability, uuid) indicates that rank's contribution
+- Probability 0.0 means no contribution from that parent
+- Sum of probabilities typically equals 1.0 (not enforced - interpreters decide)
+
+[STEP 4 - Variadic]
+
+(A small additional note was needed for concrete implementation guidance)
+
+**Implementation pattern:** Concrete strategies typically sort population by fitness,
+apply selection logic (top-k, tournament, weighted sampling), then construct ancestry
+list in original rank order with selected parents having non-zero probabilities.
+Injection of my_genome allows decisions to be made about survivorship.
+```
+
+**What you can see at method level:**
+1. Contextualization: What this hook is and why it exists (fitness-based selection logic)
+2. Technical artifact: Method signature + receives/returns contract specification
+3. How it exists: Implementation pattern concrete strategies should follow
+4. Additional varidac note was needed and so added. More could have been put in if needed.
+
+Same pattern, different abstraction level. The method block is complete and self-contained.
+
+### Key Insights
+
+**1. Same pattern recursively:**
+- Class level: Intro paragraphs (step 1) → Method subsections (step 2) → Guidance sections (step 3)
+- Method level: Hook description (step 1) → Signature+contract (step 2) → Implementation pattern (step 3)
+
+**2. Condensing reveals dispatch:**
+When you collapse sub-blocks, you can see the parent block's pattern clearly. The class-level "technical artifact" step is METHOD SUBSECTIONS - the class dispatches its responsibility by defining methods.
+
+**3. Form follows function:**
+- Class level uses subsections (###) because methods need deep unpacking
+- Method level uses paragraphs and code blocks because that's most concise for signatures
+- Opening uses flowing prose paragraphs because that's clearest for philosophy
+- Contracts uses bullet points because that's clearest for invariants
+
+**4. Information ORDER, not structural rigidity:**
+The four steps flow naturally. Sometimes all in one paragraph (method intro), sometimes across multiple subsections (class level). The ORDER is law, the FORM emerges from constraints.
+
+**5. Abstraction level consistency:**
+- Class-level intro stays at "what is this class architecturally" - doesn't dive into method algorithms
+- Method-level content stays at "what is this method's contract" - doesn't dive into concrete implementation details
+- Each level dispatches deeper details to nested blocks
+
+**6. No forced unpacking:**
+Notice apply_strategy and select_ancestry don't have variadic step 4 subsections - they don't need them. Only unpack when it adds value. The pattern is required, not all four explicit sections. 

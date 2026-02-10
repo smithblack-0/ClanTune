@@ -52,8 +52,9 @@ class TournamentSelection(AbstractAncestryStrategy):
             winner = min(tournament, key=lambda g: g.fitness)
             win_counts[winner.uuid] += 1
 
+        total_wins = sum(win_counts.values())
         return [
-            (win_counts[genome.uuid] / self.num_parents, genome.uuid)
+            (win_counts[genome.uuid] / total_wins, genome.uuid)
             for genome in population
         ]
 

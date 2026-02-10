@@ -6,7 +6,6 @@ and ancestry recording. Uses minimal concrete subclass for testing.
 """
 
 import pytest
-from uuid import uuid4
 from src.clan_tune.genetics.abstract_strategies import AbstractCrossbreedingStrategy
 from src.clan_tune.genetics.genome import Genome
 from src.clan_tune.genetics.alleles import FloatAllele
@@ -15,32 +14,28 @@ from src.clan_tune.genetics.alleles import FloatAllele
 class WeightedAverageCrossbreeding(AbstractCrossbreedingStrategy):
     """Test double implementing weighted average crossbreeding."""
 
-    def handle_crossbreeding(self, template, sources, ancestry):
+    def handle_crossbreeding(self, template, allele_population, ancestry):
         """Compute weighted average using ancestry probabilities."""
-        new_value = sum(prob * source.value for (prob, _), source in zip(ancestry, sources))
+        new_value = sum(prob * source.value for (prob, _), source in zip(ancestry, allele_population))
         return template.with_value(new_value)
 
 
 class DominantParentCrossbreeding(AbstractCrossbreedingStrategy):
     """Test double selecting dominant parent (highest probability)."""
 
-    def handle_crossbreeding(self, template, sources, ancestry):
+    def handle_crossbreeding(self, template, allele_population, ancestry):
         """Select value from parent with highest probability."""
         max_idx = max(range(len(ancestry)), key=lambda i: ancestry[i][0])
-        return template.with_value(sources[max_idx].value)
+        return template.with_value(allele_population[max_idx].value)
 
 
 # AbstractCrossbreedingStrategy Tests
 
 
 def test_crossbreeding_strategy_cannot_instantiate_directly():
-    """AbstractCrossbreedingStrategy.handle_crossbreeding raises NotImplementedError."""
-    strategy = AbstractCrossbreedingStrategy()
-    allele = FloatAllele(1.0)
-    test_uuid = uuid4()
-
-    with pytest.raises(NotImplementedError, match="Subclasses must implement handle_crossbreeding"):
-        strategy.handle_crossbreeding(allele, [allele], [(1.0, test_uuid)])
+    """AbstractCrossbreedingStrategy cannot be instantiated without implementing handle_crossbreeding."""
+    with pytest.raises(TypeError):
+        AbstractCrossbreedingStrategy()
 
 
 def test_apply_strategy_delegates_to_handle_crossbreeding():
@@ -60,51 +55,6 @@ def test_apply_strategy_delegates_to_handle_crossbreeding():
     # Weighted average: 0.7 * 0.01 + 0.3 * 0.02 = 0.013
     assert offspring.alleles["lr"].value == pytest.approx(0.013)
 
-
-def test_apply_strategy_returns_new_genome():
-    """apply_strategy returns new genome (new UUID)."""
-    strategy = DominantParentCrossbreeding()
-
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome = genome.with_overrides(fitness=0.5)
-    ancestry = [(1.0, genome.uuid)]
-
-    offspring = strategy.apply_strategy(genome, [genome], ancestry)
-
-    # New UUID indicates new genome
-    assert offspring.uuid != genome.uuid
-
-
-def test_apply_strategy_records_ancestry():
-    """apply_strategy sets parents field to ancestry."""
-    strategy = DominantParentCrossbreeding()
-
-    genome1 = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome1 = genome1.with_overrides(fitness=0.3)
-    genome2 = Genome(alleles={"lr": FloatAllele(0.02)})
-    genome2 = genome2.with_overrides(fitness=0.5)
-
-    population = [genome1, genome2]
-    ancestry = [(0.6, genome1.uuid), (0.4, genome2.uuid)]
-
-    offspring = strategy.apply_strategy(genome1, population, ancestry)
-
-    # Ancestry recorded on offspring
-    assert offspring.parents == ancestry
-
-
-def test_apply_strategy_clears_fitness():
-    """apply_strategy returns genome with no fitness (needs re-evaluation)."""
-    strategy = DominantParentCrossbreeding()
-
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome = genome.with_overrides(fitness=0.5)
-    ancestry = [(1.0, genome.uuid)]
-
-    offspring = strategy.apply_strategy(genome, [genome], ancestry)
-
-    # Offspring has no fitness
-    assert offspring.fitness is None
 
 
 def test_apply_strategy_processes_can_crossbreed_alleles_only():
@@ -138,17 +88,17 @@ def test_apply_strategy_processes_can_crossbreed_alleles_only():
 
 
 def test_handle_crossbreeding_receives_flattened_alleles():
-    """handle_crossbreeding receives template and sources as flattened alleles."""
+    """handle_crossbreeding receives template and allele_population as flattened alleles."""
 
     class InspectingStrategy(AbstractCrossbreedingStrategy):
         def __init__(self):
             self.received_template = None
-            self.received_sources = None
+            self.received_allele_population = None
             self.received_ancestry = None
 
-        def handle_crossbreeding(self, template, sources, ancestry):
+        def handle_crossbreeding(self, template, allele_population, ancestry):
             self.received_template = template
-            self.received_sources = sources
+            self.received_allele_population = allele_population
             self.received_ancestry = ancestry
             return template
 
@@ -166,9 +116,9 @@ def test_handle_crossbreeding_receives_flattened_alleles():
 
     # Verify hook received parameters
     assert strategy.received_template.value == 0.01
-    assert len(strategy.received_sources) == 2
-    assert strategy.received_sources[0].value == 0.01
-    assert strategy.received_sources[1].value == 0.02
+    assert len(strategy.received_allele_population) == 2
+    assert strategy.received_allele_population[0].value == 0.01
+    assert strategy.received_allele_population[1].value == 0.02
     assert strategy.received_ancestry == ancestry
 
 
@@ -179,10 +129,10 @@ def test_handle_crossbreeding_ancestry_parameter_injected_via_closure():
         def __init__(self):
             self.call_count = 0
 
-        def handle_crossbreeding(self, template, sources, ancestry):
+        def handle_crossbreeding(self, template, allele_population, ancestry):
             self.call_count += 1
             # Verify ancestry is available
-            assert len(ancestry) == len(sources)
+            assert len(ancestry) == len(allele_population)
             return template
 
     strategy = CountingStrategy()

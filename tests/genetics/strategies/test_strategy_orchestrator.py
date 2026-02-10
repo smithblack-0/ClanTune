@@ -32,8 +32,8 @@ class SelfReproduceAncestry(AbstractAncestryStrategy):
 class WeightedAverageCrossbreeding(AbstractCrossbreedingStrategy):
     """Weighted average using ancestry probabilities."""
 
-    def handle_crossbreeding(self, template, sources, ancestry):
-        new_value = sum(prob * source.value for (prob, _), source in zip(ancestry, sources))
+    def handle_crossbreeding(self, template, allele_population, ancestry):
+        new_value = sum(prob * source.value for (prob, _), source in zip(ancestry, allele_population))
         return template.with_value(new_value)
 
 
@@ -182,7 +182,7 @@ def test_orchestrator_sequencing():
         def __init__(self, ancestry_tracker):
             self.ancestry_tracker = ancestry_tracker
 
-        def handle_crossbreeding(self, template, sources, ancestry):
+        def handle_crossbreeding(self, template, allele_population, ancestry):
             self.ancestry_tracker.call_order.append("crossbreeding")
             return template
 
@@ -232,7 +232,7 @@ def test_setup_genome_chains_all_strategies():
             self.setup_calls += 1
             return allele.with_metadata(crossbreeding_setup=True)
 
-        def handle_crossbreeding(self, template, sources, ancestry):
+        def handle_crossbreeding(self, template, allele_population, ancestry):
             return template
 
     class CountingMutation(AbstractMutationStrategy):
@@ -280,7 +280,7 @@ def test_setup_genome_independent_metadata_injection():
         def handle_setup(self, allele):
             return allele.with_metadata(param_b=2.0)
 
-        def handle_crossbreeding(self, template, sources, ancestry):
+        def handle_crossbreeding(self, template, allele_population, ancestry):
             return template
 
     class StrategyC(AbstractMutationStrategy):

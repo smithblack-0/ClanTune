@@ -39,10 +39,9 @@ class MetalearningStrategy(AbstractStrategy):
 
 
 def test_abstract_strategy_cannot_instantiate_directly():
-    """AbstractStrategy.apply_strategy raises NotImplementedError."""
-    strategy = AbstractStrategy()
-    with pytest.raises(NotImplementedError, match="Subclasses must implement apply_strategy"):
-        strategy.apply_strategy()
+    """AbstractStrategy cannot be instantiated without implementing apply_strategy."""
+    with pytest.raises(TypeError):
+        AbstractStrategy()
 
 
 def test_default_handle_setup_returns_unchanged():
@@ -111,7 +110,7 @@ def test_setup_genome_without_metalearning():
 
 
 def test_setup_genome_returns_new_genome():
-    """setup_genome returns new genome instance (doesn't mutate input)."""
+    """setup_genome returns new genome instance without mutating input."""
     strategy = MinimalStrategy()
     original = Genome(
         alleles={"lr": FloatAllele(0.01, domain={"min": 0.0, "max": 1.0})}
@@ -119,11 +118,9 @@ def test_setup_genome_returns_new_genome():
 
     result = strategy.setup_genome(original)
 
-    # Setup preserves UUID (it's augmenting, not reproducing)
-    assert result.uuid == original.uuid
     # Original unchanged (immutability - new instance returned)
     assert len(original.alleles["lr"].metadata) == 0
-    # But result is different instance
+    # Result is different instance
     assert result is not original
 
 

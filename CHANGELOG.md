@@ -8,38 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Removed
+
+### Fixed
+
+## [0.4.0] - 2026-02-10
+
+### Added
 - Abstract strategy classes (src/clan_tune/genetics/abstract_strategies.py) providing hook-based evolution framework
-- AbstractStrategy base class with setup_genome and handle_setup infrastructure for metalearning
+- AbstractStrategy base class with setup_genome and handle_setup infrastructure for metalearning; uses ABC/abstractmethod for enforcement
 - AbstractAncestryStrategy with parent selection orchestration and validation
 - AbstractCrossbreedingStrategy with allele synthesis delegation to genome utilities
 - AbstractMutationStrategy with population/ancestry context injection via closures
-- StrategyOrchestrator for composing ancestry, crossbreeding, and mutation strategies
-- Comprehensive test suite for abstract strategies (56 tests across 5 test files)
-- Black-box testing for all strategy classes using minimal concrete test doubles
-- Concrete strategy specifications (documents/mutation_strategies.md) describing 4 mutation strategies: GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation
-- Concrete strategy specifications (documents/ancestry_strategies.md) describing 4 ancestry strategies: TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection
-- Concrete strategy specifications (documents/crossbreeding_strategies.md) describing 4 crossbreeding strategies: WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
+- StrategyOrchestrator for composing ancestry, crossbreeding, and mutation strategies; owns UUID/fitness/parents on final offspring
+- Test suite for abstract strategies (50 tests across 5 test files)
+- Concrete strategy specifications (documents/mutation_strategies.md): GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation
+- Concrete strategy specifications (documents/ancestry_strategies.md): TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection
+- Concrete strategy specifications (documents/crossbreeding_strategies.md): WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
 - Documentation for each strategy includes algorithm descriptions, parameter guidance, metalearning support, usage recommendations, and strategy combination advice
 
 ### Changed
 - Updated CLAUDE.md reference directory to include new strategy specification documents
 - Added WalkHandler, SynthesizeHandler, UpdateHandler Protocol classes to genome.py to properly express required positional args and **kwargs in handler type contracts
 - Updated all four handler type hints in genome.py to use Protocols (walk_genome_alleles, synthesize_genomes, update_alleles, synthesize_new_alleles)
-- Renamed adapted_handler parameter sources → allele_population in synthesize_genomes to match spec invariant (allele lists are allele populations)
+- Renamed parameter sources → allele_population throughout genome.py, abstract_strategies.py, and all test doubles to enforce the invariant that List[AbstractAllele] is always called allele_population
 - Fixed genome.md handler description examples to consistently use allele_population for List[AbstractAllele] parameters
-- Concrete strategy specifications revised for correctness and completeness:
-  - Added type-specific mutation handling section to mutation_strategies.md (FloatAllele, IntAllele, LogFloatAllele contracts)
-  - Replaced tutorial code with complete contract specifications for metalearning in all mutation strategies
-  - Added systematic metalearning specifications to all strategies (evolvability decisions, intrinsic domains, allele type contracts)
-  - Replaced hedging language ("e.g.", "or skip", "typically") with unambiguous throw behaviors for edge cases
-  - Added num_parents parameter to TournamentSelection, RankSelection, BoltzmannSelection
-  - Added type support matrix to crossbreeding_strategies.md overview (continuous vs discrete type compatibility)
-  - Replaced "Example" labels with "Behavior"/"Algorithm demonstration" throughout
-  - Specified constraint validation contracts (EliteBreeds tiers, DifferentialEvolution live population, SBX parent count)
-  - Added Constructor sections to all strategies specifying parameters and use_metalearning flag
-  - Clarified metalearning behavior: when use_metalearning=False (uses constructor defaults), when use_metalearning=True (injects evolvable metadata alleles)
+- Concrete strategy specifications revised for correctness: added type-specific mutation contracts, unambiguous throw behaviors, Constructor sections, metalearning specifications, and type support matrix for crossbreeding
+- abstract_strategies.md: removed with_ancestry() from crossbreeding contract, removed parents-preservation from mutation contract, removed UUID common-patterns note — UUID/fitness/parents are documented as StrategyOrchestrator-only responsibilities
+- abstract_strategies.py: removed with_ancestry() from AbstractCrossbreedingStrategy.apply_strategy and parents-preservation block from AbstractMutationStrategy.apply_strategy to match corrected spec ownership
+- Tests cleaned to only assert responsibilities contracted by the class under test: removed UUID, fitness, and ancestry assertions from individual strategy tests (these belong in orchestrator tests only)
 
-### Removed
+### Fixed
+- **Methodology failure and recovery:** Abstract strategies were initially implemented and tested without a full spec→code→tests audit. Tests were written asserting behaviors (UUID generation, fitness clearing, ancestry attachment) that the spec assigns to StrategyOrchestrator, not individual strategies. A blind fix was attempted by patching abstract_strategies.py without first auditing the spec — caught and reverted. The correct path (spec audit → spec fixes → code alignment → test cleanup) was then followed in full. All misplaced responsibility assertions were removed from strategy-level tests; orchestrator tests correctly cover these end-to-end behaviors.
 
 ### Fixed
 

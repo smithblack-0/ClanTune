@@ -7,6 +7,7 @@ pattern and delegation contracts; concrete implementations (in mutation_strategi
 ancestry_strategies.py, crossbreeding_strategies.py) provide the algorithms.
 """
 
+from abc import ABC, abstractmethod
 from typing import List, Tuple, Any, Optional, Callable
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from .genome import Genome
 from .alleles import AbstractAllele, CanMutateFilter, CanCrossbreedFilter
 
 
-class AbstractStrategy:
+class AbstractStrategy(ABC):
     """
     Root strategy class providing optional setup infrastructure.
 
@@ -47,7 +48,7 @@ class AbstractStrategy:
             new_alleles[key] = self.handle_setup(allele)
 
         # Return genome with transformed alleles
-        return genome.with_overrides(alleles=new_alleles)
+        return genome.with_alleles(alleles=new_alleles)
 
     def handle_setup(self, allele: AbstractAllele) -> AbstractAllele:
         """
@@ -65,17 +66,15 @@ class AbstractStrategy:
         """
         return allele
 
+    @abstractmethod
     def apply_strategy(self, *args, **kwargs) -> Any:
         """
         Abstract method that subclasses must implement.
 
         Defines how a genome or population of genomes is transformed. Subclasses
         narrow the signature and implement their specific strategy logic.
-
-        Raises:
-            NotImplementedError: Always (abstract method)
         """
-        raise NotImplementedError("Subclasses must implement apply_strategy")
+        ...
 
 
 class AbstractAncestryStrategy(AbstractStrategy):
@@ -138,6 +137,7 @@ class AbstractAncestryStrategy(AbstractStrategy):
 
         return ancestry
 
+    @abstractmethod
     def select_ancestry(
         self, my_genome: Genome, population: List[Genome]
     ) -> List[Tuple[float, UUID]]:
@@ -157,11 +157,8 @@ class AbstractAncestryStrategy(AbstractStrategy):
             - Index corresponds to population rank
             - Probability 0.0 means no contribution
             - Sum typically equals 1.0 (not enforced)
-
-        Raises:
-            NotImplementedError: Always (abstract method)
         """
-        raise NotImplementedError("Subclasses must implement select_ancestry")
+        ...
 
 
 class AbstractCrossbreedingStrategy(AbstractStrategy):
@@ -187,9 +184,9 @@ class AbstractCrossbreedingStrategy(AbstractStrategy):
         """
         Synthesize offspring genome by crossbreeding parent alleles.
 
-        Orchestrates crossbreeding by creating closure that injects ancestry into
-        handler, then delegating to genome.synthesize_new_alleles for tree traversal.
-        Only processes alleles with can_crossbreed=True recursively.
+        Orchestrates crossbreeding by delegating to genome.synthesize_new_alleles,
+        passing self.handle_crossbreeding as handler with ancestry injected via kwargs
+        dict. Only processes alleles with can_crossbreed=True recursively.
 
         Args:
             my_genome: Template genome (must be in population)
@@ -197,27 +194,21 @@ class AbstractCrossbreedingStrategy(AbstractStrategy):
             ancestry: Parent contribution probabilities from ancestry strategy
 
         Returns:
-            Offspring genome (new UUID, no fitness, parents set to ancestry)
+            New genome with synthesized alleles
         """
-
-        # Create closure to inject ancestry into handler
-        def handler_with_ancestry(
-            template: AbstractAllele, sources: List[AbstractAllele]
-        ) -> AbstractAllele:
-            return self.handle_crossbreeding(template, sources, ancestry)
-
-        # Delegate to genome utility for tree traversal
-        offspring = my_genome.synthesize_new_alleles(
-            population, handler_with_ancestry, predicate=CanCrossbreedFilter(True)
+        # Delegate to genome utility for tree traversal, injecting ancestry via kwargs
+        return my_genome.synthesize_new_alleles(
+            population,
+            self.handle_crossbreeding,
+            predicate=CanCrossbreedFilter(True),
+            kwargs={"ancestry": ancestry},
         )
 
-        # Record ancestry on offspring for downstream model state reconstruction
-        return offspring.with_ancestry(ancestry)
-
+    @abstractmethod
     def handle_crossbreeding(
         self,
         template: AbstractAllele,
-        sources: List[AbstractAllele],
+        allele_population: List[AbstractAllele],
         ancestry: List[Tuple[float, UUID]],
     ) -> AbstractAllele:
         """
@@ -228,17 +219,14 @@ class AbstractCrossbreedingStrategy(AbstractStrategy):
 
         Args:
             template: Allele from my_genome (flattened metadata contains raw values)
-            sources: Alleles from population (flattened, same position as template)
+            allele_population: Alleles from population (flattened, same position as template)
             ancestry: Parent contribution probabilities
 
         Returns:
             New allele synthesized from parent values, typically via
             template.with_value(new_value)
-
-        Raises:
-            NotImplementedError: Always (abstract method)
         """
-        raise NotImplementedError("Subclasses must implement handle_crossbreeding")
+        ...
 
 
 class AbstractMutationStrategy(AbstractStrategy):
@@ -265,9 +253,9 @@ class AbstractMutationStrategy(AbstractStrategy):
         """
         Mutate genome alleles to introduce variation.
 
-        Orchestrates mutation by delegating to genome.update_alleles, using closure
-        to inject population and ancestry parameters into handler. Only processes
-        alleles with can_mutate=True recursively.
+        Orchestrates mutation by delegating to genome.update_alleles, passing
+        self.handle_mutating as handler with population and ancestry injected via
+        kwargs dict. Only processes alleles with can_mutate=True recursively.
 
         Args:
             genome: Genome to mutate
@@ -275,23 +263,16 @@ class AbstractMutationStrategy(AbstractStrategy):
             ancestry: Parent contributions (for adaptive mutations)
 
         Returns:
-            New genome with mutated alleles (new UUID, no fitness, preserves parents)
+            New genome with mutated alleles
         """
-        # Create closure to inject population and ancestry into handler
-        def handler_with_context(allele: AbstractAllele) -> AbstractAllele:
-            return self.handle_mutating(allele, population, ancestry)
-
-        # Delegate to genome utility for tree traversal
-        mutated = genome.update_alleles(
-            handler_with_context, predicate=CanMutateFilter(True)
+        # Delegate to genome utility, injecting population and ancestry via kwargs
+        return genome.update_alleles(
+            self.handle_mutating,
+            predicate=CanMutateFilter(True),
+            kwargs={"population": population, "ancestry": ancestry},
         )
 
-        # Preserve parents field (update_alleles doesn't preserve it)
-        if genome.parents is not None:
-            mutated = mutated.with_overrides(parents=genome.parents)
-
-        return mutated
-
+    @abstractmethod
     def handle_mutating(
         self,
         allele: AbstractAllele,
@@ -312,11 +293,8 @@ class AbstractMutationStrategy(AbstractStrategy):
 
         Returns:
             New allele with mutated value, typically via allele.with_value(new_value)
-
-        Raises:
-            NotImplementedError: Always (abstract method)
         """
-        raise NotImplementedError("Subclasses must implement handle_mutating")
+        ...
 
 
 class StrategyOrchestrator:
@@ -395,7 +373,5 @@ class StrategyOrchestrator:
             offspring, population, ancestry
         )
 
-        # Step 4: Record ancestry (mutation preserves parents but doesn't update)
-        # Note: crossbreeding already set ancestry, but mutation creates new genome
-        # that loses it, so we reattach
+        # Step 4: Attach ancestry - orchestrator owns ancestry expression on final offspring
         return mutated_offspring.with_ancestry(ancestry)

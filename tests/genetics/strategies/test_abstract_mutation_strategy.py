@@ -41,12 +41,9 @@ class PopulationAwareMutation(AbstractMutationStrategy):
 
 
 def test_mutation_strategy_cannot_instantiate_directly():
-    """AbstractMutationStrategy.handle_mutating raises NotImplementedError."""
-    strategy = AbstractMutationStrategy()
-    allele = FloatAllele(1.0)
-
-    with pytest.raises(NotImplementedError, match="Subclasses must implement handle_mutating"):
-        strategy.handle_mutating(allele, [], [])
+    """AbstractMutationStrategy cannot be instantiated without implementing handle_mutating."""
+    with pytest.raises(TypeError):
+        AbstractMutationStrategy()
 
 
 def test_apply_strategy_delegates_to_handle_mutating():
@@ -62,47 +59,6 @@ def test_apply_strategy_delegates_to_handle_mutating():
     # Value increased by delta
     assert mutated.alleles["lr"].value == pytest.approx(0.11)
 
-
-def test_apply_strategy_returns_new_genome():
-    """apply_strategy returns new genome (new UUID)."""
-    strategy = AdditiveMutation(delta=0.01)
-
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome = genome.with_overrides(fitness=0.5)
-    ancestry = [(1.0, genome.uuid)]
-
-    mutated = strategy.apply_strategy(genome, [genome], ancestry)
-
-    # New UUID indicates new genome
-    assert mutated.uuid != genome.uuid
-
-
-def test_apply_strategy_preserves_parents():
-    """apply_strategy preserves parents field (doesn't change ancestry)."""
-    strategy = AdditiveMutation(delta=0.01)
-
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    ancestry = [(0.7, genome.uuid), (0.3, genome.uuid)]
-    genome = genome.with_overrides(fitness=0.5, parents=ancestry)
-
-    mutated = strategy.apply_strategy(genome, [genome], ancestry)
-
-    # Parents preserved from input genome
-    assert mutated.parents == ancestry
-
-
-def test_apply_strategy_clears_fitness():
-    """apply_strategy returns genome with no fitness (needs re-evaluation)."""
-    strategy = AdditiveMutation(delta=0.01)
-
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome = genome.with_overrides(fitness=0.5)
-    ancestry = [(1.0, genome.uuid)]
-
-    mutated = strategy.apply_strategy(genome, [genome], ancestry)
-
-    # Fitness cleared
-    assert mutated.fitness is None
 
 
 def test_apply_strategy_processes_can_mutate_alleles_only():

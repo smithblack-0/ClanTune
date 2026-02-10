@@ -43,13 +43,9 @@ class EqualAncestryStrategy(AbstractAncestryStrategy):
 
 
 def test_ancestry_strategy_cannot_instantiate_directly():
-    """AbstractAncestryStrategy.select_ancestry raises NotImplementedError."""
-    strategy = AbstractAncestryStrategy()
-    genome = Genome(alleles={"lr": FloatAllele(0.01)})
-    genome = genome.with_overrides(fitness=0.5)
-
-    with pytest.raises(NotImplementedError, match="Subclasses must implement select_ancestry"):
-        strategy.select_ancestry(genome, [genome])
+    """AbstractAncestryStrategy cannot be instantiated without implementing select_ancestry."""
+    with pytest.raises(TypeError):
+        AbstractAncestryStrategy()
 
 
 def test_apply_strategy_calls_select_ancestry_hook():

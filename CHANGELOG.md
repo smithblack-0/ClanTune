@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Fixed crossbreeding_strategies.md to use allele_population parameter name (was incorrectly using sources, inconsistent with the v0.4.0 rename)
+- Reorganized strategy tests into abstract/ and concrete/ subdirectories under tests/genetics/strategies/
 
 ### Removed
 

@@ -297,13 +297,13 @@ class TestSimulatedBinaryCrossover:
         result = strategy.handle_crossbreeding(template, sources, ancestry)
         assert result.value == pytest.approx(expected, rel=1e-6)
 
-    def test_fewer_than_two_nonzero_parents_raises(self):
+    def test_one_nonzero_parent_raises(self):
         strategy = SimulatedBinaryCrossover()
         template = FloatAllele(0.0)
         sources = [FloatAllele(1.0), FloatAllele(2.0)]
         ancestry = make_ancestry(1.0, 0.0)
 
-        with pytest.raises(ValueError, match="at least two parents"):
+        with pytest.raises(ValueError, match="exactly 2 non-zero parents"):
             strategy.handle_crossbreeding(template, sources, ancestry)
 
     def test_reads_eta_from_flattened_template_metadata(self):
@@ -322,20 +322,15 @@ class TestSimulatedBinaryCrossover:
         result = strategy.handle_crossbreeding(template, sources, ancestry)
         assert result.value == pytest.approx(expected_c1, rel=1e-6)
 
-    def test_uses_top_two_parents_by_probability(self):
-        """Third parent has lowest probability and is excluded from SBX computation."""
-        p1, p2, p_excluded = 2.0, 8.0, 100.0
-        u, eta = 0.25, 2
-        strategy = _DeterministicSBX([u, 0.3], default_eta=eta)
+    def test_three_nonzero_parents_raises(self):
+        """SBX requires exactly 2 non-zero parents; 3 non-zero should raise."""
+        strategy = SimulatedBinaryCrossover()
         template = FloatAllele(0.0)
-        sources = [FloatAllele(p1), FloatAllele(p2), FloatAllele(p_excluded)]
-        ancestry = make_ancestry(0.6, 0.35, 0.05)  # top 2: indices 0 and 1
+        sources = [FloatAllele(2.0), FloatAllele(8.0), FloatAllele(100.0)]
+        ancestry = make_ancestry(0.6, 0.35, 0.05)
 
-        beta = (2 * u) ** (1 / (eta + 1))
-        expected_c1 = 0.5 * ((1 + beta) * p1 + (1 - beta) * p2)
-
-        result = strategy.handle_crossbreeding(template, sources, ancestry)
-        assert result.value == pytest.approx(expected_c1, rel=1e-6)
+        with pytest.raises(ValueError, match="exactly 2 non-zero parents"):
+            strategy.handle_crossbreeding(template, sources, ancestry)
 
 
 # ─── StochasticCrossover Tests ─────────────────────────────────────────────────

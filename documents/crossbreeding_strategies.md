@@ -188,6 +188,8 @@ Stores crossbreeding parameter as instance field.
 
 **Validation:** If default_eta <= 0, raise ValueError("eta must be positive").
 
+**Required pairing:** SBX requires exactly 2 non-zero entries in ancestry. Pair with `TopN(n=2, strategy=...)` to enforce this contract.
+
 ### handle_crossbreeding
 
 Implementation of AbstractCrossbreedingStrategy's handle_crossbreeding hook. Selects two parents from ancestry, applies SBX operator to generate offspring value.
@@ -203,12 +205,10 @@ handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractA
 **Algorithm:**
 
 1. Read eta = template.metadata.get("eta", self.default_eta)
-2. Select two parents with highest non-zero probabilities from ancestry:
-   - Filter indices where ancestry[i][0] > 0.0
-   - Sort by probability descending
-   - If fewer than 2 parents have non-zero probability:
-     - Raise ValueError("SBX requires at least two parents with non-zero probability")
-   - Select top 2: parent1_idx, parent2_idx
+2. Validate ancestry has exactly 2 non-zero entries:
+   - live_indices = [i for i in range(len(ancestry)) if ancestry[i][0] > 0.0]
+   - If len(live_indices) != 2: raise ValueError("SBX requires exactly 2 non-zero parents; pair with TopN(n=2, ...)")
+   - parent1_idx, parent2_idx = live_indices[0], live_indices[1]
 3. Extract parent values: p1 = allele_population[parent1_idx].value, p2 = allele_population[parent2_idx].value
 4. Generate random u in [0, 1]
 5. Compute beta from polynomial probability distribution:
@@ -245,7 +245,7 @@ handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractA
 - Input: template, allele_population (same length as ancestry), ancestry
 - Output: new allele with SBX-generated value
 - Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
-- Parent requirement: at least 2 parents with non-zero probability (raises ValueError otherwise)
+- Parent requirement: exactly 2 non-zero entries in ancestry (raises ValueError otherwise); enforce via TopN(n=2, ...)
 - Type support: continuous only (FloatAllele, IntAllele, LogFloatAllele)
 - Stochastic: random beta generation and c1/c2 selection
 
@@ -337,7 +337,7 @@ Crossbreeding strategies compose with all ancestry and mutation strategies. Some
 
 - **Tournament + WeightedAverage + Gaussian:** Balanced composition. Moderate selection, smooth blending, local mutation. General-purpose.
 - **EliteBreeds + DominantParent + Cauchy:** Elite preservation. Thrive tier reproduced exactly, die tier gets exploratory mutation. Stable top, exploratory bottom.
-- **Rank + SBX + DifferentialEvolution:** Smooth selection gradient, controlled crossover, population-aware mutation. Good for continuous optimization.
+- **TopN(2, Rank) + SBX + DifferentialEvolution:** Smooth selection gradient, controlled crossover, population-aware mutation. Good for continuous optimization.
 - **Boltzmann + StochasticCrossover + Uniform:** Adaptive pressure, stochastic recombination, aggressive mutation. High exploration, anneals over time.
 
 No combination is invalid. Effectiveness depends on problem characteristics.

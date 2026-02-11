@@ -33,108 +33,79 @@ Different strategies provide different pressure mechanisms:
 
 ## TournamentSelection
 
-Randomly sample k genomes (tournament), select the fittest. Repeat to select multiple parents. Simple, effective, widely used. Selection pressure adjusts via tournament size: k=2 is gentle, k=10 is aggressive.
-
-### Algorithm
-
-For each of num_parents parent slots:
-1. Randomly sample `tournament_size` genomes from population
-2. Select genome with best (minimum) fitness
-3. Record selected genome
-
-After selecting all parents, build ancestry:
-- Selected parents get equal probabilities (sum to 1.0)
-- Non-selected genomes get 0.0
-- If same genome selected multiple times, it receives correspondingly higher probability
-
-**Algorithm demonstration (tournament_size=3, num_parents=2, population=5):**
-- Round 1: sample [genome_0, genome_2, genome_4], select best (say genome_2)
-- Round 2: sample [genome_1, genome_2, genome_3], select best (say genome_2 again)
-- Result ancestry: [(0.0, uuid_0), (0.0, uuid_1), (1.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-
-Note: Same genome can be selected multiple times (weighted probability). If genome_2 selected twice, it gets probability 1.0 (all contribution).
+Fulfills AbstractAncestryStrategy's select_ancestry contract. Implements tournament selection: randomly sample small subsets of the population (tournaments), select the fittest from each subset, repeat to build parent set. Configurable selection pressure through tournament size - larger tournaments favor fitter genomes (exploitation), smaller tournaments preserve diversity (exploration).
 
 ### Constructor
 
 ```python
-TournamentSelection(default_tournament_size=3, num_parents=2, use_metalearning=False)
+TournamentSelection(tournament_size=3, num_tournaments=7)
 ```
 
+Stores tournament selection parameters as instance fields.
+
 **Parameters:**
-- **default_tournament_size** (int, default 3): Tournament size used when metalearning disabled. Controls selection pressure.
-- **num_parents** (int, default 2): Number of parents to select. Remains constant (structural parameter).
-- **use_metalearning** (bool, default False): Enable metalearning for tournament_size parameter.
+- **tournament_size** (int, default 3): Number of genomes sampled per tournament. Controls selection pressure.
+- **num_tournaments** (int, default 7): Number of tournament rounds to run. Sampling occurs with replacement — same genome can win multiple rounds. Determines ancestry probability denominators (prob = win_count / num_tournaments).
 
-### Metalearning
+**Validation:** If tournament_size < 2, raise ValueError("Tournament size must be at least 2").
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
+### select_ancestry
 
-**When use_metalearning=True:** handle_setup injects evolvable tournament_size allele. num_parents remains constant (structural parameter).
+Implementation of AbstractAncestryStrategy's select_ancestry hook. Executes repeated tournaments, builds ancestry declaring parent contributions based on win frequencies.
 
-**handle_setup contract (when use_metalearning=True):**
-- Receives: allele (AbstractAllele)
-- Injects: metadata["tournament_size"] = TournamentSize allele (see below)
-- Injects: metadata["num_parents"] = raw int (constant)
-- Returns: allele with injected metadata
+```python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+```
 
-**TournamentSize allele type:**
-- Extends: IntAllele
-- Constructor: `TournamentSize(base_size: int, population_size: int, can_change: bool = True)`
-- Intrinsic domain: `{"min": 2, "max": min(10, population_size)}` (adaptive to population)
-- Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable selection pressure via tournament size
+**Receives:** my_genome (genome being evolved, must be in population), population (all genomes in rank order with fitness set, lower fitness is better).
 
-**Note on IntAllele evolution:** IntAllele stores float internally, exposes rounded int. Mutation works with raw_value to enable smooth adaptation (tournament_size evolves 3.0 → 3.3 → 3.7 → 4).
+**Returns:** Ancestry as `[(probability, uuid), ...]` in rank order where:
+- List length equals population size
+- Index i corresponds to population[i]
+- UUID at index i equals population[i].uuid
+- Probability = (win_count / num_tournaments) for that genome
+- Probabilities sum to 1.0
+
+**Algorithm:**
+
+1. Initialize win_counts dict mapping genome.uuid → 0 for all genomes
+2. For each of self.num_tournaments rounds:
+   - Sample self.tournament_size genome indices uniformly from range(population_size) with replacement
+   - Extract tournament = [population[i] for i in sampled_indices]
+   - Select winner = min(tournament, key=lambda g: g.fitness)
+   - Increment win_counts[winner.uuid]
+3. Build ancestry list in rank order:
+   - For each genome in population:
+     - prob = win_counts[genome.uuid] / self.num_tournaments
+     - Append (prob, genome.uuid)
+4. Return ancestry list
+
+**Edge case:** Same genome can be selected multiple times (sampling with replacement). If genome wins all num_tournaments rounds, receives probability 1.0.
+
+### Contracts
+
+- Input: my_genome in population, all genomes have fitness set (lower is better)
+- Output: ancestry with length = population size, index i corresponds to population[i]
+- Probabilities sum to 1.0, reflect win frequencies (win_count / num_tournaments)
+- Sampling: with replacement (genome can win multiple rounds)
+- Constraint: tournament_size >= 2 (validated in constructor)
 
 ### When to Use
 
-Use Tournament when:
-- Want simple, well-understood selection
-- Need adjustable selection pressure
+Use TournamentSelection when:
+- Want configurable selection pressure via tournament size tuning
+- Need stochastic selection preventing premature convergence
 - Population size varies (tournament adapts naturally)
-- Want stochastic selection (randomness prevents premature convergence)
+- Want simple, well-understood mechanism
 
 Avoid when:
-- Need explicit elite preservation (use EliteBreeds)
-- Want deterministic tiers (use EliteBreeds)
-- Need rank-based stability (use RankSelection)
+- Want deterministic elite preservation (use EliteBreeds)
+- Need smooth fitness-proportionate selection (use RankSelection)
+- Want adaptive pressure over time (use BoltzmannSelection)
 
 ## EliteBreeds
 
-Three-tier selection with explicit reproduction rules. Top tier (thrive) always reproduces. Middle tier (survive) reproduces with itself. Bottom tier (die) is replaced by top tier offspring. Provides elite preservation, stable middle class, and aggressive culling simultaneously.
-
-### Algorithm
-
-1. Sort population by fitness (lower is better)
-2. Divide into three tiers:
-   - **Thrive:** Top `thrive_count` genomes
-   - **Survive:** Middle genomes (population_size - thrive_count - die_count)
-   - **Die:** Bottom `die_count` genomes
-
-3. Build ancestry for each tier:
-   - **Thrive genome:** `[(1.0, self.uuid), (0.0, all others)]` - pure self-reproduction
-   - **Survive genome:** `[(1.0, self.uuid), (0.0, all others)]` - pure self-reproduction
-   - **Die genome:** Equal probability distributed among thrive tier
-
-**Downstream interpretation:**
-- Thrive/survive alleles unchanged by crossbreeding (1.0 self-probability → select own values)
-- Die alleles synthesized from thrive population (probabilities weight thrive members)
-- Mutation still applies to all tiers
-
-**Behavior (thrive=2, die=2, population=5):**
-```
-Sorted: [genome_0 (best), genome_1, genome_2, genome_3, genome_4 (worst)]
-Tiers: Thrive=[0,1], Survive=[2], Die=[3,4]
-
-Ancestry:
-genome_0: [(1.0, uuid_0), (0.0, uuid_1), (0.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-genome_1: [(0.0, uuid_0), (1.0, uuid_1), (0.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-genome_2: [(0.0, uuid_0), (0.0, uuid_1), (1.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-genome_3: [(0.5, uuid_0), (0.5, uuid_1), (0.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-genome_4: [(0.5, uuid_0), (0.5, uuid_1), (0.0, uuid_2), (0.0, uuid_3), (0.0, uuid_4)]
-```
-
-Die tier gets equal split of thrive tier (0.5 each if 2 thrive members).
+Fulfills AbstractAncestryStrategy's select_ancestry contract. Implements three-tier deterministic selection where top performers self-reproduce, middle tier self-reproduces, bottom tier replaced by offspring from top tier. Configurable exploitation through tier sizes - larger thrive tier preserves more elites, larger die tier culls more aggressively.
 
 ### Constructor
 
@@ -142,177 +113,215 @@ Die tier gets equal split of thrive tier (0.5 each if 2 thrive members).
 EliteBreeds(thrive_count=2, die_count=2)
 ```
 
+Stores tier size parameters as instance fields.
+
 **Parameters:**
-- **thrive_count** (int, default 2): Size of top tier (elite). These always reproduce and replace die tier.
-- **die_count** (int, default 2): Size of bottom tier (culled). These are replaced by thrive offspring.
+- **thrive_count** (int, default 2): Number of top-fitness genomes receiving 1.0 self-probability. These elite genomes self-reproduce and also serve as exclusive parents for die tier replacement.
+- **die_count** (int, default 2): Number of bottom-fitness genomes replaced by thrive offspring. Receive ancestry distributing equal probability among thrive tier.
 
-**Constraint:** `thrive_count + die_count < population_size` (must have survive tier). Constructor must validate this constraint and raise ValueError if violated.
+**Validation:** Constraint `thrive_count + die_count < population_size` ensures survive tier exists. Validated at runtime when population size known. If violated, raise ValueError("thrive_count + die_count must be less than population_size").
 
-### Metalearning
+### select_ancestry
 
-thrive_count and die_count remain constant (not evolvable). Tier sizes define population structure and should not change during evolution - shifting tiers mid-evolution would destabilize genetic continuity.
+Implementation of AbstractAncestryStrategy's select_ancestry hook. Sorts population to identify tiers, builds ancestry declaring self-reproduction for thrive/survive and thrive-sourced replacement for die tier.
+
+```python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+```
+
+**Receives:** my_genome (genome being evolved, must be in population), population (all genomes in rank order with fitness set, lower fitness is better).
+
+**Returns:** Ancestry as `[(probability, uuid), ...]` in rank order where:
+- List length equals population size
+- Index i corresponds to population[i]
+- Entry (probability, uuid) where probability indicates population[i]'s contribution to my_genome's offspring
+- If my_genome in thrive/survive: 1.0 probability for self, 0.0 for all others
+- If my_genome in die: (1.0 / thrive_count) for each thrive member, 0.0 for others
+- Probabilities sum to 1.0
+
+**Algorithm:**
+
+1. Validate: if self.thrive_count + self.die_count >= len(population), raise ValueError
+2. Sort population by fitness: sorted_pop = sorted(population, key=lambda g: g.fitness)
+3. Build tier membership sets:
+   - thrive_set = set(sorted_pop[0 : self.thrive_count])
+   - die_set = set(sorted_pop[-self.die_count :]) if self.die_count > 0 else set()
+4. Build ancestry in original rank order:
+   - Initialize ancestry = []
+   - For each genome in population (original order, not sorted):
+     - If my_genome in thrive_set or (my_genome not in thrive_set and my_genome not in die_set):
+       - If genome == my_genome: prob = 1.0
+       - Else: prob = 0.0
+     - Else (my_genome in die_set):
+       - If genome in thrive_set: prob = 1.0 / self.thrive_count
+       - Else: prob = 0.0
+     - Append (prob, genome.uuid) to ancestry
+5. Return ancestry
+
+### Contracts
+
+- Input: my_genome in population, all genomes have fitness set (lower is better)
+- Output: ancestry with length = population size, index i corresponds to population[i]
+- Tier constraint: thrive_count + die_count < population_size (validated at runtime)
+- Thrive/survive: 1.0 self-probability (deterministic self-reproduction)
+- Die: equal probability distributed among thrive tier (sum = 1.0)
+- Tier assignment by fitness after sorting
 
 ### When to Use
 
 Use EliteBreeds when:
-- Want elite preservation (best genomes always propagate)
-- Need aggressive culling of poor performers
-- Population has clear fitness tiers
-- Want deterministic reproduction rules
+- Want guaranteed elite preservation (best genomes self-reproduce)
+- Need aggressive culling (worst genomes replaced by thrive offspring)
+- Population has clear fitness stratification
+- Pair with DominantParent crossbreeding (1.0 probability → exact copy)
 
 Avoid when:
-- Population is small (< 5 members, tiers too small)
-- Fitness differences are small (tiers arbitrary)
-- Want more gradual selection (use Tournament or Rank)
-
-### Relationship to Mutation
-
-EliteBreeds produces different offspring depending on tier. Crossbreeding synthesizes die tier offspring from thrive tier genomes (parents with high fitness), then mutation applies:
-
-- **Thrive tier offspring:** Self-reproduction (1.0 self-probability), mutation perturbs elite values
-- **Survive tier offspring:** Self-reproduction (1.0 self-probability), mutation perturbs stable values
-- **Die tier offspring:** Synthesized from thrive tier, then mutated
-
-This tier structure interacts naturally with mutation strategies. With Cauchy or Differential Evolution, all tiers benefit from exploration while thrive tier's elite basis provides stability.
+- Population small (< 5 members, tiers too constrained)
+- Fitness differences minimal (tier boundaries arbitrary)
+- Need gradual selection pressure (use TournamentSelection or RankSelection)
 
 ## RankSelection
 
-Selection based on genome rank, not raw fitness values. Genomes are sorted, and selection probabilities are assigned by rank using a parameterized curve. More stable than fitness-proportionate selection when fitness scale varies.
-
-### Algorithm
-
-1. Sort population by fitness (rank 0 = best, rank N-1 = worst)
-2. Assign selection probability to each rank using pressure formula:
-   - Linear: `p(rank) ∝ (population_size - rank)^selection_pressure`
-   - Normalized to sum to 1.0
-3. Sample parents using rank probabilities
-4. Build ancestry with sampled probabilities
-
-**Selection pressure effect:**
-- pressure=1.0: Linear (rank 0 twice as likely as rank population_size/2)
-- pressure=2.0: Quadratic (rank 0 four times as likely)
-- pressure=0.5: Sub-linear (gentler than linear)
-
-**Behavior (population=5, pressure=1.0, num_parents=2):**
-```
-Ranks: [0 (best), 1, 2, 3, 4 (worst)]
-Weights: [5, 4, 3, 2, 1]  (population_size - rank)
-Probabilities: [5/15, 4/15, 3/15, 2/15, 1/15] = [0.33, 0.27, 0.20, 0.13, 0.07]
-```
-
-Sample 2 parents using these probabilities, build ancestry list.
+Fulfills AbstractAncestryStrategy's select_ancestry contract. Implements rank-based probability assignment where contribution probabilities depend on fitness rank, not raw fitness values. Sorts population by fitness, assigns probabilities using power curve on rank position across all genomes. Provides stable selection gradient when fitness scale varies. Pair with TopN to restrict participation to the top N contributors.
 
 ### Constructor
 
 ```python
-RankSelection(default_selection_pressure=1.0, num_parents=2, use_metalearning=False)
+RankSelection(selection_pressure=1.0)
 ```
 
+Stores selection parameter as instance field.
+
 **Parameters:**
-- **default_selection_pressure** (float, default 1.0): Pressure used when metalearning disabled. Controls rank-to-probability mapping.
-- **num_parents** (int, default 2): Number of parents to sample. Remains constant (structural parameter).
-- **use_metalearning** (bool, default False): Enable metalearning for selection_pressure parameter.
+- **selection_pressure** (float, default 1.0): Exponent controlling rank-to-probability curve steepness. Pressure 1.0 is linear, > 1.0 favors top ranks more strongly, < 1.0 provides gentler gradient.
 
-### Metalearning
+**Validation:** If selection_pressure <= 0, raise ValueError("Selection pressure must be positive").
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
+### select_ancestry
 
-**When use_metalearning=True:** handle_setup injects evolvable selection_pressure allele. num_parents remains constant.
+Implementation of AbstractAncestryStrategy's select_ancestry hook. Sorts population by fitness to determine ranks, computes rank-based weights, filters to top num_parents, normalizes, returns probabilities in original rank order.
 
-**handle_setup contract (when use_metalearning=True):**
-- Receives: allele (AbstractAllele)
-- Injects: metadata["selection_pressure"] = SelectionPressure allele (see below)
-- Injects: metadata["num_parents"] = raw int (constant)
-- Returns: allele with injected metadata
+```python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+```
 
-**SelectionPressure allele type:**
-- Extends: FloatAllele
-- Constructor: `SelectionPressure(base_pressure: float, can_change: bool = True)`
-- Intrinsic domain: `{"min": 0.5, "max": 3.0}` (sub-linear to super-linear range)
-- Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable selection pressure adapting over time
+**Receives:** my_genome (genome being evolved, must be in population), population (all genomes in rank order with fitness set, lower fitness is better).
+
+**Returns:** Ancestry as `[(probability, uuid), ...]` in rank order where:
+- List length equals population size
+- Index i corresponds to population[i]
+- UUID at index i equals population[i].uuid
+- All genomes receive non-zero probabilities based on rank weights
+- Probabilities sum to 1.0
+
+**Algorithm:**
+
+1. Sort population by fitness: sorted_pop = sorted(population, key=lambda g: g.fitness)
+2. Compute rank weights for all genomes:
+   - For genome at rank i in sorted_pop: weight[i] = (len(population) - i) ** self.selection_pressure
+3. Normalize weights:
+   - total_weight = sum(all weights)
+   - For each weight: prob = weight / total_weight
+4. Build rank_probs dict mapping genome.uuid → probability
+5. Build ancestry in original rank order:
+   - For each genome in population (original order):
+     - Append (rank_probs[genome.uuid], genome.uuid)
+6. Return ancestry
+
+### Contracts
+
+- Input: my_genome in population, all genomes have fitness set (lower is better)
+- Output: ancestry with length = population size, index i corresponds to population[i]
+- All genomes receive non-zero probability; probabilities sum to 1.0
+- Deterministic: same ancestry for all genomes (doesn't depend on my_genome)
+- Constraint: selection_pressure > 0 (validated in constructor)
+- Rank-based: probabilities invariant to fitness scale, depend only on ordering
 
 ### When to Use
 
-Use Rank when:
-- Fitness scale varies over time (rank is invariant to scale)
-- Fitness differences are very large or very small (rank normalizes)
-- Want smooth probability gradient (not discrete tiers)
+Use RankSelection when:
+- Fitness scale varies over time (rank normalizes scale)
+- Want smooth probability gradient across all population members
 - Population has clear ordering but noisy fitness values
 
+Pair with TopN to restrict participation to the top N contributors.
+
 Avoid when:
-- Fitness scale is stable and meaningful (Boltzmann handles this well)
-- Want explicit tiers (use EliteBreeds)
-- Need simplicity (use Tournament)
+- Want stochastic selection (use TournamentSelection)
+- Want discrete elite preservation (use EliteBreeds)
+- Fitness scale is stable and meaningful (use BoltzmannSelection)
 
 ## BoltzmannSelection
 
-Temperature-based selection inspired by simulated annealing. Selection probability uses Boltzmann distribution: `p ∝ exp(-fitness/temperature)`. Temperature controls pressure: high temperature (early evolution) = low pressure, low temperature (late evolution) = high pressure. Enables annealing schedules where pressure increases over time.
-
-### Algorithm
-
-1. Compute Boltzmann weights for each genome:
-   - `weight_i = exp(-fitness_i / temperature)`
-   - Lower fitness → higher weight (better genomes more likely)
-2. Normalize weights to probabilities: `p_i = weight_i / sum(weights)`
-3. Sample parents using Boltzmann probabilities
-4. Build ancestry with sampled probabilities
-
-**Temperature effect:**
-- High temp (T >> fitness_range): Weights nearly equal, low pressure, uniform sampling
-- Low temp (T << fitness_range): Weights exponentially favor best, high pressure
-- Decreasing temp over generations: annealing schedule (explore early, exploit late)
-
-**Behavior (population=3, fitness=[1.0, 2.0, 3.0], temperature=1.0, num_parents=2):**
-```
-Weights: [exp(-1/1), exp(-2/1), exp(-3/1)] = [0.368, 0.135, 0.050]
-Probabilities: [0.368, 0.135, 0.050] / 0.553 = [0.67, 0.24, 0.09]
-```
-
-Best genome (fitness=1.0) gets 67% probability.
+Fulfills AbstractAncestryStrategy's select_ancestry contract. Implements temperature-based selection using Boltzmann distribution: probabilities proportional to exp(-fitness/temperature) across all genomes. Temperature controls selection pressure — high temperature gives nearly uniform probabilities (low pressure), low temperature exponentially concentrates probability on best genomes (high pressure). Supports annealing schedules where pressure increases over time. Pair with TopN to restrict participation to the top N contributors.
 
 ### Constructor
 
 ```python
-BoltzmannSelection(default_temperature=1.0, num_parents=2, use_metalearning=False)
+BoltzmannSelection(temperature=1.0)
 ```
 
+Stores temperature as instance field.
+
 **Parameters:**
-- **default_temperature** (float, default 1.0): Temperature used when metalearning disabled. Controls selection pressure.
-- **num_parents** (int, default 2): Number of parents to sample. Remains constant (structural parameter).
-- **use_metalearning** (bool, default False): Enable metalearning for temperature parameter. When enabled, temperature evolves instead of following external annealing schedule.
+- **temperature** (float, default 1.0): Controls selection pressure via Boltzmann distribution. High temperature (T >> fitness_range) gives nearly uniform probabilities (low pressure). Low temperature (T << fitness_range) exponentially favors best genomes (high pressure). Can be annealed via external schedule.
 
-### Metalearning
+**Validation:** If temperature <= 0, raise ValueError("Temperature must be positive").
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults. Temperature can be manually annealed via external schedule.
+### select_ancestry
 
-**When use_metalearning=True:** handle_setup injects evolvable temperature allele. Temperature evolves under selection pressure, enabling adaptive pressure without external annealing. Evolvable temperature can complement or replace manual annealing. num_parents remains constant.
+Implementation of AbstractAncestryStrategy's select_ancestry hook. Computes Boltzmann weights for all genomes, filters to top num_parents by weight, normalizes, returns probabilities in original rank order.
 
-**handle_setup contract (when use_metalearning=True):**
-- Receives: allele (AbstractAllele)
-- Injects: metadata["temperature"] = Temperature allele (see below)
-- Injects: metadata["num_parents"] = raw int (constant)
-- Returns: allele with injected metadata
+```python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+```
 
-**Temperature allele type:**
-- Extends: FloatAllele
-- Constructor: `Temperature(base_temperature: float, can_change: bool = True)`
-- Intrinsic domain: `{"min": 0.1, "max": 10.0}` (high to low pressure range)
-- Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable selection pressure, alternative to manual annealing
+**Receives:** my_genome (genome being evolved, must be in population), population (all genomes in rank order with fitness set, lower fitness is better).
+
+**Returns:** Ancestry as `[(probability, uuid), ...]` in rank order where:
+- List length equals population size
+- Index i corresponds to population[i]
+- UUID at index i equals population[i].uuid
+- All genomes receive non-zero probabilities proportional to Boltzmann weights
+- Probabilities sum to 1.0
+
+**Algorithm:**
+
+1. Compute Boltzmann weights for all genomes:
+   - For each genome: weight = exp(-genome.fitness / self.temperature)
+   - Lower fitness → higher weight (better genomes more likely)
+2. Normalize weights:
+   - total_weight = sum(all weights)
+   - For each genome: prob = weight / total_weight
+3. Build boltzmann_probs dict mapping genome.uuid → probability
+4. Build ancestry in original rank order:
+   - For each genome in population (original order):
+     - Append (boltzmann_probs[genome.uuid], genome.uuid)
+5. Return ancestry
+
+### Contracts
+
+- Input: my_genome in population, all genomes have fitness set (lower is better)
+- Output: ancestry with length = population size, index i corresponds to population[i]
+- All genomes receive non-zero probability; probabilities sum to 1.0
+- Deterministic: same ancestry for all genomes (doesn't depend on my_genome)
+- Constraint: temperature > 0 (validated in constructor)
+- Fitness-proportionate: probabilities reflect exp(-fitness/temperature)
 
 ### When to Use
 
-Use Boltzmann when:
-- Want adaptive pressure over time (annealing)
-- Need fitness-proportionate selection with controlled pressure
-- Evolving over many generations (schedule matters)
-- Want principled temperature-based control
+Use BoltzmannSelection when:
+- Want adaptive pressure over time (anneal temperature externally)
+- Need fitness-proportionate selection with temperature control
+- Evolving over many generations (annealing schedule matters)
+- Want principled temperature-based pressure tuning
+
+Pair with TopN to restrict participation to the top N contributors.
 
 Avoid when:
 - Short evolution runs (annealing doesn't have time to work)
-- Don't want to tune temperature schedule
-- Need simple, static pressure (use Tournament or Rank)
+- Don't want to tune temperature schedule (use TournamentSelection or RankSelection)
+- Need simplicity (use TournamentSelection)
 
 ### Annealing Schedule
 
@@ -329,6 +338,59 @@ temperature = T_initial * (decay_rate ** generation)
 ```
 
 Typical values: `T_initial=5.0`, `T_final=0.5`, tune based on fitness range.
+
+## TopN
+
+Fulfills AbstractAncestryStrategy's select_ancestry contract as a composable wrapper. Runs a wrapped strategy then restricts participation to the top N contributors: zeroes all but the top N probabilities and renormalizes. Required pairing for crossbreeding strategies with strict parent count contracts — SBX requires exactly 2 non-zero entries.
+
+### Constructor
+
+```python
+TopN(n: int, strategy: AbstractAncestryStrategy)
+```
+
+Stores both parameters as instance fields.
+
+**Parameters:**
+- **n** (int): Number of parents to preserve with non-zero probability.
+- **strategy** (AbstractAncestryStrategy): Wrapped ancestry strategy whose output is clipped to top N.
+
+**Validation:** If n < 1, raise ValueError("n must be at least 1").
+
+### select_ancestry
+
+Implementation of AbstractAncestryStrategy's select_ancestry hook. Delegates to wrapped strategy, clips to top N, renormalizes.
+
+```python
+select_ancestry(my_genome: Genome, population: List[Genome]) -> List[Tuple[float, UUID]]
+```
+
+**Receives:** my_genome and population forwarded unchanged to wrapped strategy.
+
+**Returns:** Ancestry as `[(probability, uuid), ...]` in rank order where:
+- List length equals population size
+- Exactly N entries have non-zero probability (or fewer if population size < N)
+- Probabilities sum to 1.0
+
+**Algorithm:**
+
+1. Delegate: ancestry = self.strategy.select_ancestry(my_genome, population)
+2. Find top N indices by probability descending; tie-breaking by index order (lower index wins)
+3. Zero all probabilities outside top N
+4. Renormalize: divide each top N probability by their sum
+5. Return clipped ancestry
+
+### Contracts
+
+- Input: forwarded to wrapped strategy unchanged
+- Output: ancestry with length = population size, exactly N non-zero probabilities
+- Renormalization: top N probabilities sum to 1.0
+- Tie-breaking at boundary: lower index wins
+- Constraint: n >= 1 (validated in constructor)
+
+### When to Use
+
+Use TopN when pairing any ancestry strategy with a crossbreeding strategy that requires a fixed number of non-zero parents. Required for SimulatedBinaryCrossover: `TopN(n=2, strategy=...)`.
 
 ## Guidelines
 
@@ -348,7 +410,7 @@ Ancestry strategies compose with any crossbreeding/mutation strategies. Some com
 
 - **Tournament + WeightedAverage + Gaussian:** Balanced composition. Moderate pressure, smooth blending, local search.
 - **EliteBreeds + DominantParent + Cauchy:** Elite preservation with exploration. Thrive tier preserved exactly (DominantParent selects 1.0 self-probability), die tier gets Cauchy exploration.
-- **Boltzmann + SBX + DifferentialEvolution:** Adaptive pressure with population-aware operators. Temperature anneals, DE uses population structure.
+- **TopN(2, Boltzmann) + SBX + DifferentialEvolution:** Adaptive pressure with population-aware operators. Temperature anneals, TopN ensures SBX receives exactly 2 parents, DE uses population structure.
 - **Rank + StochasticCrossover + Uniform:** Robust exploration. Rank normalizes fitness, stochastic sampling, uniform mutation.
 
 No combination is invalid. Effectiveness depends on problem characteristics.
@@ -384,7 +446,7 @@ No combination is invalid. Effectiveness depends on problem characteristics.
 
 **EliteBreeds tiers:** Rule of thumb: thrive=10-20% of population, die=10-20% of population. Adjust based on convergence speed.
 
-**Rank pressure:** Start at 1.0 (linear). Increase to 1.5-2.0 for more pressure.
+**Rank pressure:** Start at 1.0 (linear). Increase to 1.5-2.0 for more pressure. Pair with TopN to limit contributing parents.
 
 **Boltzmann temperature:** Start at T = fitness_range / 2. Anneal to T = fitness_range / 10 over evolution.
 

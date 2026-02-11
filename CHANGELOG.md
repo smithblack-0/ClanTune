@@ -10,11 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Concrete crossbreeding strategies (src/clan_tune/genetics/crossbreeding_strategies.py): WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
 - SBXEta allele subclass (extends FloatAllele, domain [2.0, 30.0]) for SBX metalearning support
-- Test suite for concrete crossbreeding strategies (37 tests)
+- Test suite for concrete crossbreeding strategies (38 tests)
+- TopN ancestry wrapper strategy: delegates to any ancestry strategy, clips to top N by probability (tie-break by index), renormalizes — required pairing for SBX
+- Test suite for TopN (10 tests)
 
 ### Changed
 - Fixed crossbreeding_strategies.md to use allele_population parameter name (was incorrectly using sources, inconsistent with the v0.4.0 rename)
 - Reorganized strategy tests into abstract/ and concrete/ subdirectories under tests/genetics/strategies/
+- TournamentSelection parameter renamed num_parents → num_tournaments (semantically distinct: counts tournament rounds, not parents)
+- RankSelection: removed num_parents parameter; now assigns non-zero probability to all genomes (use TopN wrapper to restrict count)
+- BoltzmannSelection: removed num_parents parameter; now assigns non-zero probability to all genomes (use TopN wrapper to restrict count)
+- SimulatedBinaryCrossover: validation changed from "at least 2" to "exactly 2 non-zero parents"; removed internal top-2 selection logic (caller must supply exactly 2 via TopN)
+- ancestry_strategies.md and crossbreeding_strategies.md updated to reflect declare-interpret separation: ancestry declares full distribution, crossbreeding interprets it
 
 ### Removed
 

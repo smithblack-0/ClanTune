@@ -139,14 +139,9 @@ class SimulatedBinaryCrossover(AbstractCrossbreedingStrategy):
     ) -> AbstractAllele:
         eta = template.metadata.get("eta", self.default_eta)
 
-        # Select two parents with highest non-zero probabilities
-        live_indices = sorted(
-            (i for i in range(len(ancestry)) if ancestry[i][0] > 0.0),
-            key=lambda i: ancestry[i][0],
-            reverse=True,
-        )
-        if len(live_indices) < 2:
-            raise ValueError("SBX requires at least two parents with non-zero probability")
+        live_indices = [i for i in range(len(ancestry)) if ancestry[i][0] > 0.0]
+        if len(live_indices) != 2:
+            raise ValueError("SBX requires exactly 2 non-zero parents; pair with TopN(n=2, ...)")
         parent1_idx, parent2_idx = live_indices[0], live_indices[1]
 
         p1 = allele_population[parent1_idx].value

@@ -16,6 +16,7 @@ from src.clan_tune.genetics.ancestry_strategies import (
     BoltzmannSelection,
     EliteBreeds,
     RankSelection,
+    TopN,
     TournamentSelection,
 )
 from src.clan_tune.genetics.genome import Genome
@@ -39,7 +40,7 @@ class _DeterministicTournament(TournamentSelection):
     Test subclass overriding _choose for deterministic algorithm verification.
 
     Serves population[index] in sequence from a provided index list. Called
-    tournament_size * num_parents times total (once per tournament slot).
+    tournament_size * num_tournaments times total (once per tournament slot).
     Allows exact verification of win probability math without stochastic randomness.
     """
 
@@ -72,7 +73,7 @@ class TestTournamentSelectionConstructorValidation:
     def test_default_parameters_accepted(self):
         strategy = TournamentSelection()
         assert strategy.tournament_size == 3
-        assert strategy.num_parents == 7
+        assert strategy.num_tournaments == 7
 
 
 class TestTournamentSelectionOutputStructure:
@@ -106,13 +107,13 @@ class TestTournamentSelectionOutputStructure:
 
 
 class TestTournamentSelectionProbabilityMath:
-    """Tests that win counts translate correctly to probabilities via win_count / num_parents."""
+    """Tests that win counts translate correctly to probabilities via win_count / num_tournaments."""
 
     def test_single_winner_receives_probability_one(self):
-        # tournament_size=2, num_parents=2 → 4 calls total
+        # tournament_size=2, num_tournaments=2 → 4 calls total
         # Both tournaments: [pop[0], pop[1]] and [pop[0], pop[2]] → genome[0] wins both
         population = make_population(1.0, 2.0, 3.0)
-        strategy = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
+        strategy = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_tournaments=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -124,7 +125,7 @@ class TestTournamentSelectionProbabilityMath:
         # Tournament 1: [pop[0], pop[1]] → genome[0] wins (fitness 1.0 < 2.0)
         # Tournament 2: [pop[1], pop[2]] → genome[1] wins (fitness 2.0 < 3.0)
         population = make_population(1.0, 2.0, 3.0)
-        strategy = _DeterministicTournament([0, 1, 1, 2], tournament_size=2, num_parents=2)
+        strategy = _DeterministicTournament([0, 1, 1, 2], tournament_size=2, num_tournaments=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -133,11 +134,11 @@ class TestTournamentSelectionProbabilityMath:
         assert probs[population[2].uuid] == 0.0
 
     def test_three_wins_out_of_four_gives_correct_fraction(self):
-        # tournament_size=2, num_parents=4 → 8 calls total
+        # tournament_size=2, num_tournaments=4 → 8 calls total
         # Tournaments: [0,1], [0,2], [0,1], [1,2] → winners: 0, 0, 0, 1
         # win_counts: {0: 3, 1: 1, 2: 0} → probs: {0: 0.75, 1: 0.25, 2: 0.0}
         population = make_population(1.0, 2.0, 3.0)
-        strategy = _DeterministicTournament([0, 1, 0, 2, 0, 1, 1, 2], tournament_size=2, num_parents=4)
+        strategy = _DeterministicTournament([0, 1, 0, 2, 0, 1, 1, 2], tournament_size=2, num_tournaments=4)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -148,7 +149,7 @@ class TestTournamentSelectionProbabilityMath:
     def test_repeated_winner_accumulates_probability(self):
         # All 8 calls return genome[0] → wins all 4 tournaments → prob = 1.0
         population = make_population(1.0, 2.0, 3.0)
-        strategy = _DeterministicTournament([0] * 8, tournament_size=2, num_parents=4)
+        strategy = _DeterministicTournament([0] * 8, tournament_size=2, num_tournaments=4)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
@@ -158,7 +159,7 @@ class TestTournamentSelectionProbabilityMath:
         # Population in non-fitness order: [3.0, 1.0, 2.0]
         # Both tournaments pick genome[1] (best fitness) → wins all
         population = make_population(3.0, 1.0, 2.0)
-        strategy = _DeterministicTournament([1, 2, 1, 0], tournament_size=2, num_parents=2)
+        strategy = _DeterministicTournament([1, 2, 1, 0], tournament_size=2, num_tournaments=2)
         ancestry = strategy.select_ancestry(population[0], population)
 
         for i, (prob, uuid) in enumerate(ancestry):
@@ -171,10 +172,10 @@ class TestTournamentSelectionProbabilityMath:
         # TournamentSelection doesn't use my_genome; identical sequences yield identical probs
         population = make_population(1.0, 2.0, 3.0)
 
-        strategy1 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
+        strategy1 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_tournaments=2)
         ancestry1 = strategy1.select_ancestry(population[0], population)
 
-        strategy2 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_parents=2)
+        strategy2 = _DeterministicTournament([0, 1, 0, 2], tournament_size=2, num_tournaments=2)
         ancestry2 = strategy2.select_ancestry(population[2], population)
 
         probs1 = {uuid: prob for prob, uuid in ancestry1}
@@ -329,14 +330,9 @@ class TestRankSelectionConstructorValidation:
         with pytest.raises(ValueError, match="Selection pressure must be positive"):
             RankSelection(selection_pressure=-1.0)
 
-    def test_zero_num_parents_raises(self):
-        with pytest.raises(ValueError, match="num_parents must be at least 1"):
-            RankSelection(num_parents=0)
-
     def test_default_parameters_accepted(self):
         strategy = RankSelection()
         assert strategy.selection_pressure == 1.0
-        assert strategy.num_parents == 2
 
 
 class TestRankSelectionOutputStructure:
@@ -370,57 +366,51 @@ class TestRankSelectionOutputStructure:
 
 
 class TestRankSelectionProbabilityMath:
-    """Tests that rank weights and normalization are computed correctly."""
+    """Tests that rank weights and normalization are computed correctly across all genomes."""
 
-    def test_top_num_parents_receive_nonzero_probability(self):
+    def test_all_genomes_receive_nonzero_probability(self):
         population = make_population(1.0, 2.0, 3.0, 4.0)
-        strategy = RankSelection(num_parents=2)
+        strategy = RankSelection()
         ancestry = strategy.select_ancestry(population[0], population)
-
-        # Best two should be nonzero; worst two should be zero
-        sorted_pop = sorted(population, key=lambda g: g.fitness)
-        probs = {uuid: prob for prob, uuid in ancestry}
-
-        assert probs[sorted_pop[0].uuid] > 0.0
-        assert probs[sorted_pop[1].uuid] > 0.0
-        assert probs[sorted_pop[2].uuid] == 0.0
-        assert probs[sorted_pop[3].uuid] == 0.0
+        assert all(prob > 0.0 for prob, _ in ancestry)
 
     def test_linear_pressure_produces_correct_weights(self):
-        # n=4, pressure=1.0, num_parents=2
-        # sorted ranks: [0,1,2,3]; weights=[4,3,0,0]; total=7
-        # probs: [4/7, 3/7, 0, 0]
+        # n=4, pressure=1.0; weights=[4,3,2,1]; total=10
+        # probs: [4/10, 3/10, 2/10, 1/10]
         population = make_population(1.0, 2.0, 3.0, 4.0)
-        strategy = RankSelection(selection_pressure=1.0, num_parents=2)
+        strategy = RankSelection(selection_pressure=1.0)
         ancestry = strategy.select_ancestry(population[0], population)
 
         sorted_pop = sorted(population, key=lambda g: g.fitness)
         probs = {uuid: prob for prob, uuid in ancestry}
 
-        assert abs(probs[sorted_pop[0].uuid] - 4 / 7) < 1e-9
-        assert abs(probs[sorted_pop[1].uuid] - 3 / 7) < 1e-9
+        assert abs(probs[sorted_pop[0].uuid] - 4 / 10) < 1e-9
+        assert abs(probs[sorted_pop[1].uuid] - 3 / 10) < 1e-9
+        assert abs(probs[sorted_pop[2].uuid] - 2 / 10) < 1e-9
+        assert abs(probs[sorted_pop[3].uuid] - 1 / 10) < 1e-9
 
     def test_quadratic_pressure_produces_correct_weights(self):
-        # n=4, pressure=2.0, num_parents=2
-        # weights=[4^2, 3^2, 0, 0] = [16, 9, 0, 0]; total=25
-        # probs: [16/25, 9/25, 0, 0]
+        # n=4, pressure=2.0; weights=[16, 9, 4, 1]; total=30
+        # probs: [16/30, 9/30, 4/30, 1/30]
         population = make_population(1.0, 2.0, 3.0, 4.0)
-        strategy = RankSelection(selection_pressure=2.0, num_parents=2)
+        strategy = RankSelection(selection_pressure=2.0)
         ancestry = strategy.select_ancestry(population[0], population)
 
         sorted_pop = sorted(population, key=lambda g: g.fitness)
         probs = {uuid: prob for prob, uuid in ancestry}
 
-        assert abs(probs[sorted_pop[0].uuid] - 16 / 25) < 1e-9
-        assert abs(probs[sorted_pop[1].uuid] - 9 / 25) < 1e-9
+        assert abs(probs[sorted_pop[0].uuid] - 16 / 30) < 1e-9
+        assert abs(probs[sorted_pop[1].uuid] - 9 / 30) < 1e-9
+        assert abs(probs[sorted_pop[2].uuid] - 4 / 30) < 1e-9
+        assert abs(probs[sorted_pop[3].uuid] - 1 / 30) < 1e-9
 
     def test_higher_pressure_increases_top_genome_share(self):
         population = make_population(1.0, 2.0, 3.0, 4.0)
         sorted_pop = sorted(population, key=lambda g: g.fitness)
         best_uuid = sorted_pop[0].uuid
 
-        low_pressure = RankSelection(selection_pressure=0.5, num_parents=2)
-        high_pressure = RankSelection(selection_pressure=3.0, num_parents=2)
+        low_pressure = RankSelection(selection_pressure=0.5)
+        high_pressure = RankSelection(selection_pressure=3.0)
 
         low_ancestry = low_pressure.select_ancestry(population[0], population)
         high_ancestry = high_pressure.select_ancestry(population[0], population)
@@ -429,18 +419,6 @@ class TestRankSelectionProbabilityMath:
         high_probs = {uuid: prob for prob, uuid in high_ancestry}
 
         assert high_probs[best_uuid] > low_probs[best_uuid]
-
-    def test_num_parents_one_gives_winner_takes_all(self):
-        population = make_population(1.0, 2.0, 3.0)
-        strategy = RankSelection(num_parents=1)
-        ancestry = strategy.select_ancestry(population[0], population)
-
-        sorted_pop = sorted(population, key=lambda g: g.fitness)
-        probs = {uuid: prob for prob, uuid in ancestry}
-
-        assert probs[sorted_pop[0].uuid] == 1.0
-        assert probs[sorted_pop[1].uuid] == 0.0
-        assert probs[sorted_pop[2].uuid] == 0.0
 
     def test_deterministic_output_independent_of_my_genome(self):
         population = make_population(1.0, 2.0, 3.0, 4.0)
@@ -466,11 +444,10 @@ class TestRankSelectionProbabilityMath:
         # Population in non-fitness order; best by fitness should get highest weight
         population = make_population(4.0, 1.0, 3.0, 2.0)
         best_genome = population[1]  # fitness 1.0 — best
-        strategy = RankSelection(selection_pressure=1.0, num_parents=2)
+        strategy = RankSelection(selection_pressure=1.0)
         ancestry = strategy.select_ancestry(population[0], population)
 
         probs = {uuid: prob for prob, uuid in ancestry}
-        # best_genome should have highest probability among all
         assert all(
             probs[best_genome.uuid] >= probs[g.uuid]
             for g in population
@@ -491,14 +468,9 @@ class TestBoltzmannSelectionConstructorValidation:
         with pytest.raises(ValueError, match="Temperature must be positive"):
             BoltzmannSelection(temperature=-1.0)
 
-    def test_zero_num_parents_raises(self):
-        with pytest.raises(ValueError, match="num_parents must be at least 1"):
-            BoltzmannSelection(num_parents=0)
-
     def test_default_parameters_accepted(self):
         strategy = BoltzmannSelection()
         assert strategy.temperature == 1.0
-        assert strategy.num_parents == 2
 
 
 class TestBoltzmannSelectionOutputStructure:
@@ -532,59 +504,39 @@ class TestBoltzmannSelectionOutputStructure:
 
 
 class TestBoltzmannSelectionProbabilityMath:
-    """Tests that Boltzmann weights are computed and filtered correctly."""
+    """Tests that Boltzmann weights are computed correctly across all genomes."""
 
-    def test_top_num_parents_by_weight_receive_nonzero_probability(self):
+    def test_all_genomes_receive_nonzero_probability(self):
         population = make_population(1.0, 2.0, 3.0, 4.0)
-        strategy = BoltzmannSelection(temperature=1.0, num_parents=2)
+        strategy = BoltzmannSelection(temperature=1.0)
         ancestry = strategy.select_ancestry(population[0], population)
-
-        # Lower fitness → higher Boltzmann weight; top 2 should be nonzero
-        sorted_pop = sorted(population, key=lambda g: g.fitness)
-        probs = {uuid: prob for prob, uuid in ancestry}
-
-        assert probs[sorted_pop[0].uuid] > 0.0
-        assert probs[sorted_pop[1].uuid] > 0.0
-        assert probs[sorted_pop[2].uuid] == 0.0
-        assert probs[sorted_pop[3].uuid] == 0.0
+        assert all(prob > 0.0 for prob, _ in ancestry)
 
     def test_boltzmann_weight_math_is_correct(self):
-        # exp(-fitness/T) for T=1.0: genome with fitness 1.0 gets exp(-1), fitness 2.0 gets exp(-2)
-        # num_parents=2; both selected; total = exp(-1) + exp(-2)
+        # exp(-fitness/T) for T=1.0; all 3 genomes contribute
+        # w0=exp(-1), w1=exp(-2), w2=exp(-3); total=w0+w1+w2
         population = make_population(1.0, 2.0, 3.0)
-        strategy = BoltzmannSelection(temperature=1.0, num_parents=2)
+        strategy = BoltzmannSelection(temperature=1.0)
         ancestry = strategy.select_ancestry(population[0], population)
 
         sorted_pop = sorted(population, key=lambda g: g.fitness)
         w0 = math.exp(-1.0)
         w1 = math.exp(-2.0)
-        total = w0 + w1
+        w2 = math.exp(-3.0)
+        total = w0 + w1 + w2
 
         probs = {uuid: prob for prob, uuid in ancestry}
         assert abs(probs[sorted_pop[0].uuid] - w0 / total) < 1e-9
         assert abs(probs[sorted_pop[1].uuid] - w1 / total) < 1e-9
-        assert probs[sorted_pop[2].uuid] == 0.0
-
-    def test_num_parents_one_gives_winner_takes_all(self):
-        population = make_population(1.0, 2.0, 3.0)
-        strategy = BoltzmannSelection(temperature=1.0, num_parents=1)
-        ancestry = strategy.select_ancestry(population[0], population)
-
-        sorted_pop = sorted(population, key=lambda g: g.fitness)
-        probs = {uuid: prob for prob, uuid in ancestry}
-
-        assert probs[sorted_pop[0].uuid] == 1.0
-        assert probs[sorted_pop[1].uuid] == 0.0
-        assert probs[sorted_pop[2].uuid] == 0.0
+        assert abs(probs[sorted_pop[2].uuid] - w2 / total) < 1e-9
 
     def test_lower_temperature_concentrates_probability_on_best(self):
-        # At very low temperature, best genome should receive much higher share
         population = make_population(1.0, 2.0, 3.0, 4.0)
         sorted_pop = sorted(population, key=lambda g: g.fitness)
         best_uuid = sorted_pop[0].uuid
 
-        high_temp = BoltzmannSelection(temperature=100.0, num_parents=2)
-        low_temp = BoltzmannSelection(temperature=0.01, num_parents=2)
+        high_temp = BoltzmannSelection(temperature=100.0)
+        low_temp = BoltzmannSelection(temperature=0.01)
 
         high_ancestry = high_temp.select_ancestry(population[0], population)
         low_ancestry = low_temp.select_ancestry(population[0], population)
@@ -594,13 +546,12 @@ class TestBoltzmannSelectionProbabilityMath:
 
         assert low_probs[best_uuid] > high_probs[best_uuid]
 
-    def test_temperature_affects_distribution_among_selected(self):
-        # At high temp, two selected genomes should have similar probabilities
-        # At low temp, best should dominate
+    def test_temperature_affects_distribution_among_all_genomes(self):
+        # At high temp, all genomes should have similar probabilities
         population = make_population(1.0, 2.0, 3.0)
         sorted_pop = sorted(population, key=lambda g: g.fitness)
 
-        high_temp = BoltzmannSelection(temperature=1000.0, num_parents=2)
+        high_temp = BoltzmannSelection(temperature=1000.0)
         high_ancestry = high_temp.select_ancestry(population[0], population)
         high_probs = {uuid: prob for prob, uuid in high_ancestry}
 
@@ -626,3 +577,128 @@ class TestBoltzmannSelectionProbabilityMath:
         ancestry = strategy.select_ancestry(population[0], population)
         for i, (prob, uuid) in enumerate(ancestry):
             assert uuid == population[i].uuid
+
+
+# --- TopN ---
+
+
+class TestTopNConstructorValidation:
+    """Tests that the constructor enforces n >= 1."""
+
+    def test_n_zero_raises(self):
+        with pytest.raises(ValueError, match="n must be at least 1"):
+            TopN(n=0, strategy=TournamentSelection())
+
+    def test_n_negative_raises(self):
+        with pytest.raises(ValueError, match="n must be at least 1"):
+            TopN(n=-1, strategy=TournamentSelection())
+
+    def test_valid_construction_stores_fields(self):
+        inner = TournamentSelection()
+        wrapper = TopN(n=2, strategy=inner)
+        assert wrapper.n == 2
+        assert wrapper.strategy is inner
+
+
+class TestTopNOutputStructure:
+    """Tests structural contracts of TopN ancestry output."""
+
+    def test_output_length_equals_population_size(self):
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        wrapper = TopN(n=2, strategy=RankSelection())
+        ancestry = wrapper.select_ancestry(population[0], population)
+        assert len(ancestry) == len(population)
+
+    def test_uuid_at_index_matches_population_genome(self):
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        wrapper = TopN(n=2, strategy=RankSelection())
+        ancestry = wrapper.select_ancestry(population[0], population)
+        for i, (prob, uuid) in enumerate(ancestry):
+            assert uuid == population[i].uuid
+
+    def test_probabilities_sum_to_one(self):
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        wrapper = TopN(n=2, strategy=RankSelection())
+        ancestry = wrapper.select_ancestry(population[0], population)
+        total = sum(prob for prob, _ in ancestry)
+        assert abs(total - 1.0) < 1e-9
+
+
+class TestTopNClippingBehavior:
+    """Tests that TopN clips to exactly N non-zero probabilities and renormalizes."""
+
+    def test_exactly_n_nonzero_probabilities(self):
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        wrapper = TopN(n=2, strategy=RankSelection())
+        ancestry = wrapper.select_ancestry(population[0], population)
+        nonzero_count = sum(1 for prob, _ in ancestry if prob > 0.0)
+        assert nonzero_count == 2
+
+    def test_top_n_by_probability_preserved(self):
+        # RankSelection gives best genome highest prob; TopN(2) keeps top 2
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        sorted_pop = sorted(population, key=lambda g: g.fitness)
+        wrapper = TopN(n=2, strategy=RankSelection(selection_pressure=1.0))
+        ancestry = wrapper.select_ancestry(population[0], population)
+
+        probs = {uuid: prob for prob, uuid in ancestry}
+        assert probs[sorted_pop[0].uuid] > 0.0
+        assert probs[sorted_pop[1].uuid] > 0.0
+        assert probs[sorted_pop[2].uuid] == 0.0
+        assert probs[sorted_pop[3].uuid] == 0.0
+
+    def test_clipped_probabilities_renormalized_correctly(self):
+        # n=4, pressure=1.0; raw weights=[4,3,2,1]; top 2 weights=[4,3]; sum=7
+        # after TopN(2): 4/7 and 3/7
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        sorted_pop = sorted(population, key=lambda g: g.fitness)
+        wrapper = TopN(n=2, strategy=RankSelection(selection_pressure=1.0))
+        ancestry = wrapper.select_ancestry(population[0], population)
+
+        probs = {uuid: prob for prob, uuid in ancestry}
+        assert abs(probs[sorted_pop[0].uuid] - 4 / 7) < 1e-9
+        assert abs(probs[sorted_pop[1].uuid] - 3 / 7) < 1e-9
+
+    def test_tie_breaking_selects_lower_index(self):
+        # EliteBreeds die genome gets equal 0.5 from two thrive genomes
+        # TopN(1) must break the tie toward lower population index
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        die_genome = population[3]
+        thrive_first = population[0]  # lower index, prob=0.5 from inner
+        wrapper = TopN(n=1, strategy=EliteBreeds(thrive_count=2, die_count=1))
+        ancestry = wrapper.select_ancestry(die_genome, population)
+
+        probs = {uuid: prob for prob, uuid in ancestry}
+        assert probs[thrive_first.uuid] == pytest.approx(1.0)
+        assert probs[population[1].uuid] == pytest.approx(0.0)
+
+    def test_n_larger_than_population_preserves_all(self):
+        # TopN(10) on a 3-genome population: all 3 remain nonzero
+        population = make_population(1.0, 2.0, 3.0)
+        wrapper = TopN(n=10, strategy=RankSelection(selection_pressure=1.0))
+        ancestry = wrapper.select_ancestry(population[0], population)
+        nonzero_count = sum(1 for prob, _ in ancestry if prob > 0.0)
+        assert nonzero_count == 3
+
+    def test_n_one_gives_winner_takes_all(self):
+        population = make_population(1.0, 2.0, 3.0)
+        sorted_pop = sorted(population, key=lambda g: g.fitness)
+        wrapper = TopN(n=1, strategy=RankSelection(selection_pressure=1.0))
+        ancestry = wrapper.select_ancestry(population[0], population)
+
+        probs = {uuid: prob for prob, uuid in ancestry}
+        assert probs[sorted_pop[0].uuid] == pytest.approx(1.0)
+        assert probs[sorted_pop[1].uuid] == pytest.approx(0.0)
+        assert probs[sorted_pop[2].uuid] == pytest.approx(0.0)
+
+    def test_delegates_to_wrapped_strategy(self):
+        # EliteBreeds: die genome gets equal probability from thrive tier
+        # TopN(1): keeps only the highest-probability parent
+        population = make_population(1.0, 2.0, 3.0, 4.0)
+        die_genome = population[3]
+        thrive_genome = population[0]
+        wrapper = TopN(n=1, strategy=EliteBreeds(thrive_count=1, die_count=1))
+        ancestry = wrapper.select_ancestry(die_genome, population)
+
+        probs = {uuid: prob for prob, uuid in ancestry}
+        assert probs[thrive_genome.uuid] == pytest.approx(1.0)

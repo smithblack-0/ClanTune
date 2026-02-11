@@ -62,14 +62,7 @@ Population-aware strategies must respect upstream ancestry decisions. Ancestry s
 
 ## GaussianMutation
 
-Baseline mutation strategy adding Gaussian noise to allele values. Simple, well-understood, effective for local search. Noise follows normal distribution N(0, std), producing small perturbations around current values.
-
-### Algorithm
-
-For each mutable allele:
-1. Read std and mutation_chance from metadata (fall back to defaults)
-2. With probability `mutation_chance`, add noise: `new_value = value + N(0, std)`
-3. Return allele.with_value(new_value) (domain clamping handled by constructor)
+Fulfills AbstractMutationStrategy's handle_mutating contract. Implements Gaussian noise-based mutation adding normally distributed perturbations to allele values. Noise follows N(0, std) producing small steps around current values. Configurable via std (perturbation magnitude) and mutation_chance (frequency). Effective for local search and refining solutions.
 
 ### Constructor
 
@@ -77,61 +70,94 @@ For each mutable allele:
 GaussianMutation(default_std=0.1, default_mutation_chance=0.15, use_metalearning=False)
 ```
 
+Stores mutation parameters as instance fields.
+
 **Parameters:**
-- **default_std** (float, default 0.1): Standard deviation used when metalearning disabled. Controls perturbation magnitude.
-- **default_mutation_chance** (float, default 0.15): Mutation probability used when metalearning disabled.
-- **use_metalearning** (bool, default False): Enable metalearning for this strategy. When False, uses constructor defaults. When True, injects evolvable metadata alleles.
+- **default_std** (float, default 0.1): Standard deviation for Gaussian noise when metalearning disabled. Controls perturbation magnitude.
+- **default_mutation_chance** (float, default 0.15): Probability of mutating each allele when metalearning disabled.
+- **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor defaults. When True, injects evolvable metadata alleles for std and mutation_chance.
+
+**Validation:** If default_std <= 0, raise ValueError("std must be positive"). If default_mutation_chance < 0 or default_mutation_chance > 1, raise ValueError("mutation_chance must be in [0, 1]").
+
+### handle_mutating
+
+Implementation of AbstractMutationStrategy's handle_mutating hook. Reads std and mutation_chance from metadata (with fallback to defaults), applies Gaussian noise with specified probability.
+
+```python
+handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** allele (flattened, metadata contains raw values), population (all genomes, ignored by this strategy), ancestry (parent contributions, ignored by this strategy).
+
+**Returns:** New allele with Gaussian noise applied (if mutation triggered), or unchanged allele (if not triggered).
+
+**Algorithm:**
+
+1. Read std = allele.metadata.get("std", self.default_std)
+2. Read mutation_chance = allele.metadata.get("mutation_chance", self.default_mutation_chance)
+3. Generate random uniform value r in [0, 1]
+4. If r > mutation_chance:
+   - Return allele unchanged
+5. Generate Gaussian noise: noise = N(0, std)
+6. Compute new_value = allele.value + noise
+7. Return allele.with_value(new_value)
+
+**Type-specific handling:**
+- FloatAllele: new_value = value + noise (linear space)
+- IntAllele: new_value = raw_value + noise (mutate underlying float, not rounded int)
+- LogFloatAllele: new_value = value * exp(noise) (multiplicative in log space)
 
 ### Metalearning
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults (default_std, default_mutation_chance) for all alleles.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults for all alleles.
 
-**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both std and mutation_chance evolve under selection pressure.
+**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both std and mutation_chance become continuous evolvable parameters adapting under selection pressure.
 
 **handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
-- Injects: metadata["std"] = GaussianStd allele (see below)
-- Injects: metadata["mutation_chance"] = GaussianMutationChance allele (see below)
+- Injects: metadata["std"] = GaussianStd allele
+- Injects: metadata["mutation_chance"] = GaussianMutationChance allele
 - Returns: allele with injected metadata
 
 **GaussianStd allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `GaussianStd(base_std: float, can_change: bool = True)`
-- Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}` (computed in constructor)
+- Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}`
 - Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable standard deviation for Gaussian noise
+- Purpose: Evolvable standard deviation
 
 **GaussianMutationChance allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `GaussianMutationChance(value: float)`
-- Intrinsic domain: `{"min": 0.01, "max": 0.5}` (prevents extreme mutation rates)
+- Intrinsic domain: `{"min": 0.1, "max": 0.5}`
 - Flags: can_mutate=True, can_crossbreed=True
-- Purpose: Evolvable probability of mutating each allele
+- Purpose: Evolvable mutation frequency
 
-The `.get()` pattern in handle_mutating ensures the strategy works regardless of use_metalearning setting.
+### Contracts
+
+- Input: allele with metadata (flattened), population, ancestry
+- Output: new allele (mutated or unchanged)
+- Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
+- Supports FloatAllele, IntAllele, LogFloatAllele (continuous types)
+- Population and ancestry parameters ignored (simple local mutation)
+- Mutation stochastic: controlled by mutation_chance parameter
 
 ### When to Use
 
-Use Gaussian when:
-- Hyperparameters are continuous and smooth
-- Local search is desired (refining good solutions)
-- Population has converged and needs gentle perturbation
-- You want well-understood baseline behavior
+Use GaussianMutation when:
+- Hyperparameters are continuous (FloatAllele, IntAllele, LogFloatAllele)
+- Want local search (small perturbations refining solutions)
+- Population has converged and needs gentle exploration
+- Want simple, well-understood baseline behavior
 
 Avoid when:
-- Stuck in local optima (Cauchy's heavy tails may help)
-- Discrete or categorical parameters (use Uniform)
-- Need population-aware adaptation (use Differential Evolution)
+- Stuck in local optima (use CauchyMutation for occasional large jumps)
+- Hyperparameters are discrete (use UniformMutation)
+- Need population-aware adaptation (use DifferentialEvolution)
 
 ## CauchyMutation
 
-Heavy-tailed mutation using Cauchy distribution. Similar to Gaussian but with fatter tails, producing occasional large jumps that escape local optima. Effective when population has converged prematurely.
-
-### Algorithm
-
-Identical to Gaussian except noise distribution: `new_value = value + Cauchy(0, scale)`.
-
-Cauchy distribution has infinite variance - rare but large perturbations occur. Most mutations are small (like Gaussian), but outliers enable exploration.
+Fulfills AbstractMutationStrategy's handle_mutating contract. Implements heavy-tailed Cauchy noise-based mutation adding perturbations with occasional large jumps. Similar to Gaussian but with infinite variance - most mutations are small, rare outliers enable exploration. Effective for escaping local optima when population has converged prematurely.
 
 ### Constructor
 
@@ -139,90 +165,95 @@ Cauchy distribution has infinite variance - rare but large perturbations occur. 
 CauchyMutation(default_scale=0.1, default_mutation_chance=0.15, use_metalearning=False)
 ```
 
+Stores mutation parameters as instance fields.
+
 **Parameters:**
-- **default_scale** (float, default 0.1): Scale parameter used when metalearning disabled. Controls perturbation magnitude.
-- **default_mutation_chance** (float, default 0.15): Mutation probability used when metalearning disabled.
-- **use_metalearning** (bool, default False): Enable metalearning for this strategy.
+- **default_scale** (float, default 0.1): Scale parameter for Cauchy distribution when metalearning disabled. Controls perturbation magnitude.
+- **default_mutation_chance** (float, default 0.15): Probability of mutating each allele when metalearning disabled.
+- **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor defaults. When True, injects evolvable metadata alleles for scale and mutation_chance.
+
+**Validation:** If default_scale <= 0, raise ValueError("scale must be positive"). If default_mutation_chance < 0 or default_mutation_chance > 1, raise ValueError("mutation_chance must be in [0, 1]").
+
+### handle_mutating
+
+Implementation of AbstractMutationStrategy's handle_mutating hook. Reads scale and mutation_chance from metadata (with fallback to defaults), applies Cauchy noise with specified probability.
+
+```python
+handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** allele (flattened, metadata contains raw values), population (ignored), ancestry (ignored).
+
+**Returns:** New allele with Cauchy noise applied (if mutation triggered), or unchanged allele.
+
+**Algorithm:**
+
+1. Read scale = allele.metadata.get("scale", self.default_scale)
+2. Read mutation_chance = allele.metadata.get("mutation_chance", self.default_mutation_chance)
+3. Generate random uniform value r in [0, 1]
+4. If r > mutation_chance:
+   - Return allele unchanged
+5. Generate Cauchy noise: noise = Cauchy(0, scale)
+6. Compute new_value = allele.value + noise
+7. Return allele.with_value(new_value)
+
+**Type-specific handling:**
+- FloatAllele: new_value = value + noise (linear space)
+- IntAllele: new_value = raw_value + noise (mutate underlying float)
+- LogFloatAllele: new_value = value * exp(noise) (multiplicative in log space)
 
 ### Metalearning
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults for all alleles.
 
-**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both scale and mutation_chance evolve.
+**When use_metalearning=True:** handle_setup injects evolvable metadata alleles. Both scale and mutation_chance become continuous evolvable parameters.
 
 **handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
-- Injects: metadata["scale"] = CauchyScale allele (see below)
-- Injects: metadata["mutation_chance"] = CauchyMutationChance allele (see below)
+- Injects: metadata["scale"] = CauchyScale allele
+- Injects: metadata["mutation_chance"] = CauchyMutationChance allele
 - Returns: allele with injected metadata
 
 **CauchyScale allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `CauchyScale(base_scale: float, can_change: bool = True)`
 - Intrinsic domain: `{"min": 0.01 * base_scale, "max": 10.0 * base_scale}`
 - Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable scale parameter for Cauchy distribution
+- Purpose: Evolvable scale parameter
 
 **CauchyMutationChance allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `CauchyMutationChance(value: float)`
-- Intrinsic domain: `{"min": 0.01, "max": 0.5}`
+- Intrinsic domain: `{"min": 0.1, "max": 0.5}`
 - Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable mutation frequency
 
+### Contracts
+
+- Input: allele with metadata (flattened), population, ancestry
+- Output: new allele (mutated or unchanged)
+- Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
+- Supports FloatAllele, IntAllele, LogFloatAllele (continuous types)
+- Population and ancestry parameters ignored (simple local mutation)
+- Mutation stochastic: controlled by mutation_chance parameter
+- Heavy tails: occasional large jumps enable exploration
+
 ### When to Use
 
-Use Cauchy when:
-- Population has converged to local optimum
-- Need occasional large jumps to escape plateaus
+Use CauchyMutation when:
+- Population has converged to local optimum (need escape mechanism)
+- Want occasional large jumps to explore distant regions
 - Hyperparameters have multiple local optima
+- Gaussian mutation stagnating
 
 Avoid when:
 - Training is unstable (large jumps can be destructive)
-- Gaussian is working well (simpler is better)
-- Early in evolution (population needs time to converge first)
+- GaussianMutation working well (simpler is better)
+- Population maintaining sufficient diversity (Gaussian's gentler exploration is adequate)
 
 ## DifferentialEvolution
 
-Population-aware mutation using differences between population members. Instead of random noise, perturbations are scaled differences from other genomes. Efficient and effective for continuous optimization - typically 2-5x fewer evaluations than Gaussian on continuous problems.
-
-### Architectural Adaptation
-
-Standard Differential Evolution (DE/rand/1) randomly selects base vector and difference vectors from the entire population, controlling selection. Our architecture separates selection (ancestry) from mutation. DifferentialEvolution receives population from ancestry strategy and respects it.
-
-**Key adaptation:** Only use live population members. Ancestry marks dead members with 0.0 probability. Differential Evolution samples from non-zero members only, respecting upstream selection while implementing the DE algorithm.
-
-### Algorithm
-
-For each mutable allele (received via handle_mutating hook):
-1. Read F (scale factor) and sampling_mode from metadata (fall back to defaults)
-2. Identify live genomes: those where ancestry probability > 0.0
-3. Extract corresponding alleles from live genomes
-4. Sample base allele and two difference alleles from live alleles (respecting sampling_mode)
-5. Compute: `new_value = base.value + F * (allele1.value - allele2.value)`
-6. Return allele.with_value(new_value)
-
-The handler operates on alleles but receives the full population (genomes) and ancestry. Filtering to live members means: only use alleles from genomes where the corresponding ancestry entry has probability > 0.0.
-
-### Sampling Modes
-
-**random** (default): Sample uniformly from live population. Ignores ancestry probabilities beyond the 0.0 = dead constraint.
-
-**weighted**: Sample weighted by ancestry probabilities. Parents with higher contribution probabilities are more likely to be selected for difference vectors.
-
-Sampling mode trades exploration (random) for exploitation (weighted). Random explores broadly across live population. Weighted focuses on high-fitness parents.
-
-### Population and Ancestry Interpretation
-
-DifferentialEvolution demonstrates the ancestry interpretation pattern:
-
-- **Hard constraint:** `ancestry[i][0] == 0.0` means genome i is dead, don't use it
-- **Flexible interpretation:** Among live members, how to sample is strategy choice
-  - Can sample uniformly (treats all live equally)
-  - Can sample weighted (uses selection strength)
-  - Implementation can support both modes
-
-This respects responsibility boundaries: ancestry selects parents, mutation decides how to use them for perturbations.
+Fulfills AbstractMutationStrategy's handle_mutating contract. Implements population-aware mutation using scaled differences between population members. Instead of random noise, perturbations are computed from other genomes' values. Efficient for continuous optimization - typically 2-5x fewer evaluations than Gaussian. Architectural adaptation: respects ancestry by filtering to live members (ancestry probability > 0.0), samples base and difference vectors from live population only.
 
 ### Constructor
 
@@ -230,65 +261,90 @@ This respects responsibility boundaries: ancestry selects parents, mutation deci
 DifferentialEvolution(default_F=0.8, default_sampling_mode="random", use_metalearning=False)
 ```
 
+Stores mutation parameters as instance fields.
+
 **Parameters:**
-- **default_F** (float, default 0.8): Scale factor used when metalearning disabled. F ∈ [0.5, 1.0] is typical.
-- **default_sampling_mode** (str, default "random"): Sampling mode. Options: "random" (uniform) or "weighted" (by ancestry probabilities).
-- **use_metalearning** (bool, default False): Enable metalearning for F parameter.
+- **default_F** (float, default 0.8): Scale factor for difference vectors when metalearning disabled. Typical range [0.5, 1.0].
+- **default_sampling_mode** (str, default "random"): Sampling mode for selecting base and difference vectors. Options: "random" (uniform from live population) or "weighted" (weighted by ancestry probabilities). Remains constant (not evolvable).
+- **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor defaults. When True, injects evolvable F allele. sampling_mode remains constant (discrete parameter).
+
+**Validation:** If default_F <= 0, raise ValueError("F must be positive"). If default_sampling_mode not in ["random", "weighted"], raise ValueError("sampling_mode must be 'random' or 'weighted'").
+
+### handle_mutating
+
+Implementation of AbstractMutationStrategy's handle_mutating hook. Identifies live population members from ancestry, samples base and difference vectors, computes perturbation from scaled difference.
+
+```python
+handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** allele (flattened, metadata contains raw values), population (all genomes), ancestry (parent contributions, used to identify live members).
+
+**Returns:** New allele with differential evolution perturbation applied.
+
+**Algorithm:**
+
+1. Read F = allele.metadata.get("F", self.default_F)
+2. Read sampling_mode = allele.metadata.get("sampling_mode", self.default_sampling_mode)
+3. Identify live genome indices: live_indices = [i for i in range(len(population)) if ancestry[i][0] > 0.0]
+4. If len(live_indices) < 3:
+   - Raise ValueError("DifferentialEvolution requires at least 3 live population members")
+5. Extract live alleles from corresponding genomes at current allele position
+6. Sample base, diff1, diff2 from live alleles (without replacement, respecting sampling_mode):
+   - If sampling_mode == "random": uniform sampling from live_indices
+   - If sampling_mode == "weighted": weighted sampling using ancestry probabilities (renormalized over live members)
+7. Compute new_value = base.value + F * (diff1.value - diff2.value)
+8. Return allele.with_value(new_value)
+
+**Type-specific handling:**
+- FloatAllele: new_value = base + F * (diff1 - diff2) (linear space)
+- IntAllele: new_value = base.raw_value + F * (diff1.raw_value - diff2.raw_value) (mutate underlying float)
+- LogFloatAllele: new_value = base * ((diff1 / diff2) ** F) (multiplicative in log space)
 
 ### Metalearning
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor defaults for all alleles.
 
-**When use_metalearning=True:** handle_setup injects evolvable F allele. Sampling mode remains constant (discrete string choice).
+**When use_metalearning=True:** handle_setup injects evolvable F allele. sampling_mode remains constant (discrete choice not suitable for evolution).
 
 **handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
-- Injects: metadata["F"] = DifferentialEvolutionF allele (see below)
-- Injects: metadata["sampling_mode"] = raw string (constant, not evolvable)
+- Injects: metadata["F"] = DifferentialEvolutionF allele
 - Returns: allele with injected metadata
 
 **DifferentialEvolutionF allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `DifferentialEvolutionF(base_F: float, can_change: bool = True)`
-- Intrinsic domain: `{"min": 0.5, "max": 2.0}` (standard DE range)
+- Intrinsic domain: `{"min": 0.5, "max": 2.0}`
 - Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable scale factor for difference vectors
+- Purpose: Evolvable scale factor
 
-**sampling_mode rationale:** Discrete string choice ("random" vs "weighted"), not suitable for continuous evolution. Remains constant.
+### Contracts
+
+- Input: allele with metadata (flattened), population, ancestry
+- Output: new allele with DE perturbation
+- Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
+- Supports FloatAllele, IntAllele, LogFloatAllele (continuous types)
+- Population-aware: uses ancestry to identify live members (probability > 0.0)
+- Constraint: requires >= 3 live population members (raises ValueError otherwise)
+- Sampling without replacement: base, diff1, diff2 must be distinct
 
 ### When to Use
 
-Use Differential Evolution when:
-- Hyperparameters are continuous
-- Population size is adequate (need enough live members to sample from)
+Use DifferentialEvolution when:
+- Hyperparameters are continuous (FloatAllele, IntAllele, LogFloatAllele)
+- Population size adequate (>= 4 members, preferably more for diversity)
 - Want sample-efficient optimization (fewer evaluations than Gaussian)
 - Population provides useful gradient information (differences encode search directions)
 
 Avoid when:
-- Population is very small (< 4 members may not have enough diversity)
-- Hyperparameters are discrete (difference operations don't make sense)
-- In initial generations before population diversifies
-
-### Implementation Note
-
-Concrete implementations must handle edge cases:
-- If live population has < 3 members, raise ValueError("DifferentialEvolution requires at least 3 live population members")
-- Sampling must be without replacement (base, allele1, allele2 must be distinct indices)
-- If sampling without replacement impossible, raise ValueError
-- Out-of-bounds values: allele.with_value() applies domain clamping per allele contract
+- Population very small (< 4 members, insufficient diversity)
+- Hyperparameters discrete (difference operations meaningless)
+- Initial generations (population needs time to diversify first)
 
 ## UniformMutation
 
-Simplest mutation: replace value with random sample from domain. Unbiased, maximum exploration, no exploitation. Useful for categorical parameters or breaking out of convergence.
-
-### Algorithm
-
-For each mutable allele:
-1. Read mutation_chance from metadata
-2. With probability `mutation_chance`, sample new value uniformly from allele.domain
-3. Return allele.with_value(new_value)
-
-For continuous domains (FloatAllele), samples uniformly from [min, max]. For discrete domains (StringAllele), samples uniformly from set.
+Fulfills AbstractMutationStrategy's handle_mutating contract. Implements uniform sampling mutation replacing allele values with random samples from domain. Unbiased maximum exploration with no exploitation. Entire domain reachable with equal probability. Useful for discrete/categorical parameters or breaking out of convergence.
 
 ### Constructor
 
@@ -296,42 +352,80 @@ For continuous domains (FloatAllele), samples uniformly from [min, max]. For dis
 UniformMutation(default_mutation_chance=0.1, use_metalearning=False)
 ```
 
-**Parameters:**
-- **default_mutation_chance** (float, default 0.1): Mutation probability used when metalearning disabled. Lower than Gaussian since uniform perturbations are more disruptive.
-- **use_metalearning** (bool, default False): Enable metalearning for mutation_chance parameter.
+Stores mutation parameter as instance field.
 
-No magnitude parameter - entire domain is reachable with equal probability.
+**Parameters:**
+- **default_mutation_chance** (float, default 0.1): Probability of mutating each allele when metalearning disabled. Lower than Gaussian (0.15) since uniform perturbations are more disruptive.
+- **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor default. When True, injects evolvable mutation_chance allele.
+
+**Validation:** If default_mutation_chance < 0 or default_mutation_chance > 1, raise ValueError("mutation_chance must be in [0, 1]").
+
+### handle_mutating
+
+Implementation of AbstractMutationStrategy's handle_mutating hook. Reads mutation_chance from metadata (with fallback to default), samples uniformly from allele domain with specified probability.
+
+```python
+handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** allele (flattened, metadata contains raw values), population (ignored), ancestry (ignored).
+
+**Returns:** New allele with uniformly sampled value (if mutation triggered), or unchanged allele.
+
+**Algorithm:**
+
+1. Read mutation_chance = allele.metadata.get("mutation_chance", self.default_mutation_chance)
+2. Generate random uniform value r in [0, 1]
+3. If r > mutation_chance:
+   - Return allele unchanged
+4. Sample new_value uniformly from allele.domain:
+   - FloatAllele: uniform in [domain["min"], domain["max"]]
+   - IntAllele: uniform in [domain["min"], domain["max"]], rounded
+   - LogFloatAllele: uniform in log space [log(domain["min"]), log(domain["max"])], then exp
+   - BoolAllele: uniform from {True, False}
+   - StringAllele: uniform from domain set
+5. Return allele.with_value(new_value)
 
 ### Metalearning
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default for all alleles.
 
-**When use_metalearning=True:** handle_setup injects evolvable mutation_chance allele. No magnitude parameter (uniform samples entire domain with equal probability).
+**When use_metalearning=True:** handle_setup injects evolvable mutation_chance allele. No magnitude parameter (uniform samples entire domain).
 
 **handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
-- Injects: metadata["mutation_chance"] = UniformMutationChance allele (see below)
+- Injects: metadata["mutation_chance"] = UniformMutationChance allele
 - Returns: allele with injected metadata
 
 **UniformMutationChance allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `UniformMutationChance(value: float)`
-- Intrinsic domain: `{"min": 0.01, "max": 0.3}` (lower than Gaussian since uniform is more disruptive)
+- Intrinsic domain: `{"min": 0.01, "max": 0.3}`
 - Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable mutation frequency
 
+### Contracts
+
+- Input: allele with metadata (flattened), population, ancestry
+- Output: new allele (uniformly sampled or unchanged)
+- Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
+- Supports all allele types (FloatAllele, IntAllele, LogFloatAllele, BoolAllele, StringAllele)
+- Population and ancestry parameters ignored (simple local mutation)
+- Mutation stochastic: controlled by mutation_chance parameter
+- Maximum exploration: entire domain reachable with equal probability
+
 ### When to Use
 
-Use Uniform when:
-- Hyperparameters are discrete/categorical (StringAllele)
-- Need to break out of total convergence
-- Want maximum diversity injection
+Use UniformMutation when:
+- Hyperparameters are discrete/categorical (BoolAllele, StringAllele)
+- Need to break out of total convergence (inject maximum diversity)
+- Want unbiased exploration across entire domain
 - Exploring early in evolution
 
 Avoid when:
-- Hyperparameters are continuous and smooth (Gaussian is gentler)
-- Population has not converged yet (disruption without benefit)
-- Training is unstable (large random jumps can be destructive)
+- Hyperparameters continuous and smooth (GaussianMutation gentler)
+- Population hasn't converged yet (disruption without benefit)
+- Training unstable (large random jumps destructive)
 
 ## Guidelines
 

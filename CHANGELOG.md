@@ -8,8 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Concrete crossbreeding strategies (src/clan_tune/genetics/crossbreeding_strategies.py): WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
+- SBXEta allele subclass (extends FloatAllele, domain [2.0, 30.0]) for SBX metalearning support
+- Test suite for concrete crossbreeding strategies (37 tests)
 
 ### Changed
+- Fixed crossbreeding_strategies.md to use allele_population parameter name (was incorrectly using sources, inconsistent with the v0.4.0 rename)
 
 ### Removed
 

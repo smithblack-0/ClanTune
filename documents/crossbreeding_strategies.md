@@ -14,7 +14,7 @@ Crossbreeding operates on individual alleles via the handle_crossbreeding hook. 
 
 **Handler contract:**
 - **template**: Allele from my_genome with resolved metadata (nested alleles already processed, flattened to raw values)
-- **sources**: List of alleles from population (in rank order, flattened)
+- **allele_population**: List of alleles from population (in rank order, flattened)
 - **ancestry**: `List[Tuple[float, UUID]]` declaring parent contribution probabilities
 - **Returns**: New allele via `template.with_value(new_value)`
 
@@ -59,102 +59,120 @@ Crossbreeding strategies must specify which allele types they support. Type comp
 
 ## WeightedAverage
 
-Linear combination of parent values weighted by ancestry probabilities. Offspring value is weighted average of source values. Simple, smooth, preserves characteristics proportionally. Baseline crossbreeding strategy.
+Fulfills AbstractCrossbreedingStrategy's handle_crossbreeding contract. Implements linear combination of parent values weighted by ancestry probabilities. Offspring value is weighted average of source values. Simple, smooth, preserves characteristics proportionally. Baseline crossbreeding strategy.
 
-### Algorithm
+### Constructor
 
-For each crossbreedable allele:
-1. Extract ancestry probabilities from ancestry list
-2. Compute weighted average: `new_value = sum(prob_i * source_i.value for each parent)`
-3. Return `template.with_value(new_value)`
-
-Only parents with non-zero probability contribute. Probabilities act as linear weights.
-
-**Behavior (ancestry = [(0.6, uuid_0), (0.4, uuid_1), (0.0, uuid_2)], source values [10.0, 20.0, 30.0]):**
-```
-new_value = 0.6 * 10.0 + 0.4 * 20.0 + 0.0 * 30.0
-         = 6.0 + 8.0 + 0.0
-         = 14.0
+```python
+WeightedAverage()
 ```
 
-Offspring value is 60% of parent_0, 40% of parent_1, 0% of parent_2.
+No parameters. Stateless strategy.
+
+### handle_crossbreeding
+
+Implementation of AbstractCrossbreedingStrategy's handle_crossbreeding hook. Computes weighted average of source values using ancestry probabilities as weights.
+
+```python
+handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** template (allele from my_genome, flattened metadata), allele_population (alleles from population, flattened), ancestry (parent contribution probabilities).
+
+**Returns:** New allele with value set to weighted average of source values.
+
+**Algorithm:**
+
+1. Initialize new_value = 0.0
+2. For i in range(len(sources)):
+   - prob = ancestry[i][0]
+   - new_value += prob * allele_population[i].value
+3. Return template.with_value(new_value)
+
+**Type support:** Supports FloatAllele, IntAllele, LogFloatAllele (continuous types). Cannot average discrete types (BoolAllele, StringAllele).
+
+### Contracts
+
+- Input: template, allele_population (same length as ancestry), ancestry
+- Output: new allele with averaged value
+- Only parents with non-zero probability contribute (prob > 0.0)
+- Probabilities act as linear weights
+- Type support: continuous only (FloatAllele, IntAllele, LogFloatAllele)
+- Stateless: no parameters or state
 
 ### When to Use
 
 Use WeightedAverage when:
 - Want smooth blending of parent characteristics
-- Ancestry probabilities should directly translate to contribution strength
-- Hyperparameters are continuous and averaging makes sense
+- Ancestry probabilities should translate directly to contribution strength
+- Hyperparameters are continuous (FloatAllele, IntAllele, LogFloatAllele)
 - Want predictable, stable crossbreeding (baseline behavior)
 
 Avoid when:
-- Hyperparameters are discrete/categorical (averaging doesn't make sense)
+- Hyperparameters discrete/categorical (use DominantParent or StochasticCrossover)
 - Want to preserve exact parent values (use DominantParent)
 - Need stochastic variation (use StochasticCrossover)
 
 ## DominantParent
 
-Select value from parent with highest ancestry probability. No blending - offspring inherits dominant parent's value exactly. Fast, simple, preserves existing values.
+Fulfills AbstractCrossbreedingStrategy's handle_crossbreeding contract. Implements dominant parent selection - offspring inherits value from parent with highest ancestry probability. No blending, exact value preservation. Fast, simple, deterministic. Pairs naturally with EliteBreeds (1.0 self-probability → exact self-copy).
 
-### Algorithm
+### Constructor
 
-For each crossbreedable allele:
-1. Find parent with maximum ancestry probability
-2. Use that parent's value: `new_value = sources[dominant_idx].value`
-3. Return `template.with_value(new_value)`
-
-If multiple parents tie for highest probability, selects first (lowest index).
-
-**Behavior (ancestry = [(0.1, uuid_0), (0.7, uuid_1), (0.2, uuid_2)], source values [10.0, 20.0, 30.0]):**
-```
-max_prob = 0.7 at index 1
-new_value = sources[1].value = 20.0
+```python
+DominantParent()
 ```
 
-Offspring inherits parent_1's value exactly.
+No parameters. Stateless strategy.
+
+### handle_crossbreeding
+
+Implementation of AbstractCrossbreedingStrategy's handle_crossbreeding hook. Finds parent with maximum ancestry probability, uses that parent's value.
+
+```python
+handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** template (allele from my_genome, flattened metadata), allele_population (alleles from population, flattened), ancestry (parent contribution probabilities).
+
+**Returns:** New allele with value from dominant parent (highest probability).
+
+**Algorithm:**
+
+1. Find dominant index: dominant_idx = argmax([ancestry[i][0] for i in range(len(ancestry))])
+2. Extract dominant value: new_value = allele_population[dominant_idx].value
+3. Return template.with_value(new_value)
+
+**Tie-breaking:** If multiple parents tie for highest probability, selects first (lowest index).
+
+**Type support:** Supports all allele types (FloatAllele, IntAllele, LogFloatAllele, BoolAllele, StringAllele). No blending required.
+
+### Contracts
+
+- Input: template, allele_population (same length as ancestry), ancestry
+- Output: new allele with value from dominant parent
+- Selection criterion: highest ancestry probability
+- Tie-breaking: first occurrence (lowest index)
+- Type support: all types (no blending, just selection)
+- Stateless: no parameters or state
 
 ### When to Use
 
 Use DominantParent when:
 - Want to preserve exact parent values (no blending)
-- Ancestry clearly identifies single best parent (high-probability winner)
-- Crossbreeding with EliteBreeds (1.0 self-probability means exact self-copy)
+- Ancestry clearly identifies dominant parent (high-probability winner)
+- Pair with EliteBreeds ancestry (1.0 self-probability → exact self-copy)
 - Want fast crossbreeding (no arithmetic, just selection)
+- Hyperparameters are discrete (BoolAllele, StringAllele) or continuous
 
 Avoid when:
 - Want to blend characteristics from multiple parents (use WeightedAverage)
 - Ancestry assigns similar probabilities to multiple parents (dominant selection arbitrary)
-- Need randomness or exploration (use StochasticCrossover)
-
-### Interaction with EliteBreeds
-
-DominantParent pairs naturally with EliteBreeds ancestry:
-- **Thrive/survive tiers:** ancestry = [(1.0, self.uuid), (0.0, others)] → DominantParent selects self.value → exact self-reproduction
-- **Die tier:** ancestry distributes among thrive tier (e.g., [(0.5, uuid_0), (0.5, uuid_1), ...]) → DominantParent picks uuid_0 or uuid_1 deterministically
-
-This preserves elite genomes exactly while replacing die tier with thrive tier offspring.
+- Need stochastic variation (use StochasticCrossover)
 
 ## SimulatedBinaryCrossover (SBX)
 
-Mimics single-point crossover for continuous values. Uses two parents and a distribution parameter (eta) to generate offspring near parent values with controlled spread. Common in NSGA-II and other evolutionary algorithms. Good for bounded continuous values.
-
-### Algorithm
-
-For each crossbreedable allele:
-1. Select two parents from ancestry (typically two highest probabilities)
-2. Apply SBX operator to parent values p1 and p2:
-   - Generate random beta from distribution controlled by eta
-   - Compute: `c1 = 0.5 * ((1 + beta) * p1 + (1 - beta) * p2)`
-   - Compute: `c2 = 0.5 * ((1 - beta) * p1 + (1 + beta) * p2)`
-   - Randomly select c1 or c2 as new_value
-3. Return `template.with_value(new_value)`
-
-**Distribution parameter eta:** Controls spread of offspring values around parents.
-- High eta (e.g., 20): Offspring close to parents (exploitation)
-- Low eta (e.g., 2): Offspring spread wider (exploration)
-- Standard value: eta=15
-
-**Parent selection:** Use two parents with highest non-zero probabilities. If fewer than two parents have non-zero probability, raise ValueError("SBX requires at least two parents with non-zero probability").
+Fulfills AbstractCrossbreedingStrategy's handle_crossbreeding contract. Implements simulated binary crossover mimicking single-point crossover for continuous values. Uses two parents and distribution parameter eta to generate offspring near parent values with controlled spread. Common in NSGA-II and multi-objective optimization. Good for bounded continuous values.
 
 ### Constructor
 
@@ -162,81 +180,144 @@ For each crossbreedable allele:
 SimulatedBinaryCrossover(default_eta=15, use_metalearning=False)
 ```
 
+Stores crossbreeding parameter as instance field.
+
 **Parameters:**
-- **default_eta** (float, default 15): Distribution index used when metalearning disabled. Controls offspring spread. Typical range: [2, 30].
-- **use_metalearning** (bool, default False): Enable metalearning for eta parameter.
+- **default_eta** (float, default 15): Distribution index when metalearning disabled. Controls offspring spread around parents. Typical range [2, 30]. High eta (20+) keeps offspring close (exploitation), low eta (2-5) spreads wider (exploration).
+- **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor default. When True, injects evolvable eta allele.
+
+**Validation:** If default_eta <= 0, raise ValueError("eta must be positive").
+
+### handle_crossbreeding
+
+Implementation of AbstractCrossbreedingStrategy's handle_crossbreeding hook. Selects two parents from ancestry, applies SBX operator to generate offspring value.
+
+```python
+handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** template (allele from my_genome, flattened metadata), allele_population (alleles from population, flattened), ancestry (parent contribution probabilities).
+
+**Returns:** New allele with SBX-generated value.
+
+**Algorithm:**
+
+1. Read eta = template.metadata.get("eta", self.default_eta)
+2. Select two parents with highest non-zero probabilities from ancestry:
+   - Filter indices where ancestry[i][0] > 0.0
+   - Sort by probability descending
+   - If fewer than 2 parents have non-zero probability:
+     - Raise ValueError("SBX requires at least two parents with non-zero probability")
+   - Select top 2: parent1_idx, parent2_idx
+3. Extract parent values: p1 = allele_population[parent1_idx].value, p2 = allele_population[parent2_idx].value
+4. Generate random u in [0, 1]
+5. Compute beta from polynomial probability distribution:
+   - If u <= 0.5: beta = (2 * u) ** (1 / (eta + 1))
+   - Else: beta = (1 / (2 * (1 - u))) ** (1 / (eta + 1))
+6. Compute offspring values:
+   - c1 = 0.5 * ((1 + beta) * p1 + (1 - beta) * p2)
+   - c2 = 0.5 * ((1 - beta) * p1 + (1 + beta) * p2)
+7. Randomly select c1 or c2 (uniform 50/50): new_value = c1 if random() < 0.5 else c2
+8. Return template.with_value(new_value)
+
+**Type support:** Supports FloatAllele, IntAllele, LogFloatAllele (continuous types). Cannot operate on discrete types.
 
 ### Metalearning
 
-**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default.
+**When use_metalearning=False:** handle_setup returns allele unchanged. Strategy uses constructor default for all alleles.
 
-**When use_metalearning=True:** handle_setup injects evolvable eta allele, enabling adaptive exploitation/exploration balance.
+**When use_metalearning=True:** handle_setup injects evolvable eta allele enabling adaptive exploitation/exploration balance.
 
 **handle_setup contract (when use_metalearning=True):**
 - Receives: allele (AbstractAllele)
-- Injects: metadata["eta"] = SBXEta allele (see below)
+- Injects: metadata["eta"] = SBXEta allele
 - Returns: allele with injected metadata
 
 **SBXEta allele type:**
-- Extends: FloatAllele
+- Extends: FloatAllele (continuous)
 - Constructor: `SBXEta(base_eta: float, can_change: bool = True)`
-- Intrinsic domain: `{"min": 2.0, "max": 30.0}` (standard SBX range)
+- Intrinsic domain: `{"min": 2.0, "max": 30.0}`
 - Flags: can_mutate=can_change, can_crossbreed=can_change
-- Purpose: Evolvable offspring spread (low = exploration, high = exploitation)
+- Purpose: Evolvable offspring spread
+
+### Contracts
+
+- Input: template, allele_population (same length as ancestry), ancestry
+- Output: new allele with SBX-generated value
+- Metadata reading: uses .get(key, default) pattern (works with or without metalearning)
+- Parent requirement: at least 2 parents with non-zero probability (raises ValueError otherwise)
+- Type support: continuous only (FloatAllele, IntAllele, LogFloatAllele)
+- Stochastic: random beta generation and c1/c2 selection
 
 ### When to Use
 
-Use SBX when:
-- Hyperparameters are continuous and bounded
-- Want offspring near parents but with controlled variation
+Use SimulatedBinaryCrossover when:
+- Hyperparameters continuous and bounded (FloatAllele, IntAllele, LogFloatAllele)
+- Want offspring near parents with controlled variation
 - Using multi-objective optimization (NSGA-II heritage)
 - Want established, well-studied crossover operator
 
 Avoid when:
-- Hyperparameters are unbounded (SBX assumes bounds)
-- Ancestry assigns probability to many parents (SBX uses two)
+- Hyperparameters unbounded (SBX assumes bounds)
+- Ancestry assigns probability to many parents (SBX uses only two)
 - Want simple blending (use WeightedAverage)
+- Hyperparameters discrete (use DominantParent or StochasticCrossover)
 
 ## StochasticCrossover
 
-Random per-allele parent selection using ancestry probabilities as sampling weights. Each allele independently samples a parent, uses that parent's value. Introduces stochastic variation while respecting ancestry weights. Enables exploration via discontinuous inheritance.
+Fulfills AbstractCrossbreedingStrategy's handle_crossbreeding contract. Implements stochastic per-allele parent selection using ancestry probabilities as sampling weights. Each allele independently samples a parent, uses that parent's value. Introduces stochastic variation while respecting ancestry weights. Enables exploration via discontinuous mix-and-match inheritance. Resembles uniform crossover from genetic algorithms but weighted by fitness.
 
-### Algorithm
+### Constructor
 
-For each crossbreedable allele:
-1. Sample parent index from ancestry probabilities (weighted random choice)
-2. Use sampled parent's value: `new_value = sources[sampled_idx].value`
-3. Return `template.with_value(new_value)`
-
-Parents with higher probabilities are more likely to be selected, but sampling is stochastic. Each allele gets an independent sample, so offspring can inherit from different parents at different loci.
-
-**Behavior (ancestry = [(0.2, uuid_0), (0.5, uuid_1), (0.3, uuid_2)], three alleles):**
-```
-Allele "lr": sample using [0.2, 0.5, 0.3] → select index 1 → use parent_1's lr value
-Allele "momentum": sample using [0.2, 0.5, 0.3] → select index 2 → use parent_2's momentum value
-Allele "weight_decay": sample using [0.2, 0.5, 0.3] → select index 1 → use parent_1's weight_decay value
+```python
+StochasticCrossover()
 ```
 
-Offspring inherits lr from parent_1, momentum from parent_2, weight_decay from parent_1. Mix-and-match inheritance.
+No parameters. Stateless strategy.
+
+### handle_crossbreeding
+
+Implementation of AbstractCrossbreedingStrategy's handle_crossbreeding hook. Samples parent index weighted by ancestry probabilities, uses sampled parent's value.
+
+```python
+handle_crossbreeding(template: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+```
+
+**Receives:** template (allele from my_genome, flattened metadata), allele_population (alleles from population, flattened), ancestry (parent contribution probabilities).
+
+**Returns:** New allele with value from stochastically sampled parent.
+
+**Algorithm:**
+
+1. Extract probabilities: probs = [ancestry[i][0] for i in range(len(ancestry))]
+2. Sample parent index using probs as weights: sampled_idx = weighted_random_choice(range(len(allele_population)), weights=probs)
+3. Extract sampled value: new_value = allele_population[sampled_idx].value
+4. Return template.with_value(new_value)
+
+**Type support:** Supports all allele types (FloatAllele, IntAllele, LogFloatAllele, BoolAllele, StringAllele). No blending required, just selection.
+
+### Contracts
+
+- Input: template, allele_population (same length as ancestry), ancestry
+- Output: new allele with value from stochastically sampled parent
+- Sampling: weighted by ancestry probabilities
+- Stochastic: different calls can produce different parents
+- Type support: all types (no blending, just selection)
+- Stateless: no parameters or state
 
 ### When to Use
 
-Use Stochastic when:
+Use StochasticCrossover when:
 - Want per-allele variation (different alleles from different parents)
 - Ancestry weights should influence but not determine inheritance
 - Need exploration via discontinuous combinations
 - Hyperparameters have some independence (mixed inheritance makes sense)
+- Hyperparameters are discrete (BoolAllele, StringAllele) or continuous
 
 Avoid when:
 - Want deterministic inheritance (use DominantParent)
 - Want smooth blending (use WeightedAverage)
-- Hyperparameters are tightly coupled (mixed inheritance breaks dependencies)
-
-### Relationship to Genetic Algorithms
-
-StochasticCrossover resembles uniform crossover from classical genetic algorithms: each gene (allele) independently chooses a parent. The difference: classical uniform crossover samples uniformly (50/50), StochasticCrossover samples weighted by ancestry (respects fitness-based selection).
-
-This enables fitness-guided stochastic recombination: better parents more likely to contribute, but randomness enables exploration.
+- Hyperparameters tightly coupled (mixed inheritance breaks dependencies)
 
 ## Guidelines
 

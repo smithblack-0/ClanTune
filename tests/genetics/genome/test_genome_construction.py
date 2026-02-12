@@ -321,6 +321,71 @@ class TestSetAndGetFitness:
         assert new_genome.get_fitness() == 0.85
 
 
+class TestMetadata:
+    """Test genome-level metadata storage."""
+
+    def test_default_metadata_empty(self):
+        """Genome constructed without metadata has empty dict."""
+        genome = Genome()
+        assert genome.metadata == {}
+
+    def test_construction_with_metadata(self):
+        """Genome constructed with metadata preserves it."""
+        genome = Genome(metadata={"key": "value"})
+        assert genome.metadata == {"key": "value"}
+
+    def test_set_metadata_adds_key(self):
+        """set_metadata returns new genome with key set."""
+        genome = Genome()
+        genome = genome.set_metadata("expression_config", {"lr_path": "optimizer/0/lr"})
+        assert genome.get_metadata("expression_config") == {"lr_path": "optimizer/0/lr"}
+
+    def test_set_metadata_preserves_uuid(self):
+        """set_metadata preserves UUID."""
+        genome = Genome()
+        original_uuid = genome.uuid
+        genome = genome.set_metadata("key", "value")
+        assert genome.uuid == original_uuid
+
+    def test_set_metadata_preserves_existing_keys(self):
+        """set_metadata preserves other metadata keys."""
+        genome = Genome(metadata={"a": 1})
+        genome = genome.set_metadata("b", 2)
+        assert genome.get_metadata("a") == 1
+        assert genome.get_metadata("b") == 2
+
+    def test_set_metadata_overwrites_existing_key(self):
+        """set_metadata overwrites value for existing key."""
+        genome = Genome(metadata={"key": "old"})
+        genome = genome.set_metadata("key", "new")
+        assert genome.get_metadata("key") == "new"
+
+    def test_get_metadata_missing_key_raises(self):
+        """get_metadata raises KeyError for absent key."""
+        genome = Genome()
+        with pytest.raises(KeyError):
+            genome.get_metadata("nonexistent")
+
+    def test_set_metadata_is_immutable(self):
+        """set_metadata returns new genome, leaves original unchanged."""
+        genome1 = Genome()
+        genome2 = genome1.set_metadata("key", "value")
+        assert genome1.metadata == {}
+        assert genome2.get_metadata("key") == "value"
+
+    def test_with_overrides_preserves_metadata(self):
+        """with_overrides preserves metadata when not overridden."""
+        genome = Genome(metadata={"key": "value"}, fitness=0.5)
+        rebuilt = genome.with_overrides(fitness=0.9)
+        assert rebuilt.get_metadata("key") == "value"
+
+    def test_with_overrides_can_replace_metadata(self):
+        """with_overrides can replace metadata."""
+        genome = Genome(metadata={"old": 1})
+        rebuilt = genome.with_overrides(metadata={"new": 2})
+        assert rebuilt.metadata == {"new": 2}
+
+
 class TestImmutability:
     """Test immutability guarantees across all operations."""
 

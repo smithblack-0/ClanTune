@@ -30,6 +30,7 @@ The Genome class has four fields:
 **`alleles: Dict[str, AbstractAllele]`** — mapping of hyperparameter names to alleles. Orchestrators conventionally use the name field to encode a path, like "optimizer/0/lr", telling themselves where to patch in that particular allele. This is not enforced in any way in genome; genome just adds by name.
 **`parents: Optional[List[Tuple[float, UUID]]]`** — ancestry record. `None` for initial genomes. Non-None list has length equal to population size, where index corresponds to rank. Entry `(probability, uuid)` indicates contribution from that rank's parent. Probability 0.0 means no contribution. Used by orchestration for distributed model state reconstruction and by internal strategy subsystems.
 **`fitness: Optional[float]`** — evaluation result. `None` until assigned.
+**`metadata: Dict[str, Any]`** — arbitrary genome-level storage for external systems. Empty dict by default. Not genetic material — strategies never touch this. Used by orchestrators for bookkeeping (expression config, training state markers, etc.).
 
 ### Core Methods
 
@@ -40,7 +41,9 @@ The Genome object has two notable modes of operation. One is intended to be inte
 * **`add_hyperparameter(name: str, value: Any, allele_type: str, **allele_kwargs) -> Genome`** — returns new genome with added hyperparameter.
 * **`as_hyperparameters() -> Dict[str, Any]`** — extracts hyperparameters as name → value mapping. Returns values, not alleles.
 * **`set_fitness(value: float, new_uuid: bool = False) -> Genome`** — returns new genome with fitness assigned. 
-* **`get_fitness() -> Optional[float]`** — retrieves current fitness value. 
+* **`get_fitness() -> Optional[float]`** — retrieves current fitness value.
+* **`set_metadata(key: str, value: Any) -> Genome`** — returns new genome with metadata key set. Preserves UUID.
+* **`get_metadata(key: str) -> Any`** — retrieves metadata value by key. Raises KeyError if absent.
 
 **Strategy support:**
 
@@ -163,7 +166,7 @@ Genome is largely about coordination and orchestration. It owns
 * Holding the top level alleles themselves
 * Providing access into those allele through handler functions.
 * Walking the top-level alleles.
-* Fitness, ids, and ancestry
+* Fitness, ids, ancestry, and metadata
 * Supporting hyperparameter extraction for primary training
 * Dispatching through add_allele to string-keyword relevant concrete types.
 

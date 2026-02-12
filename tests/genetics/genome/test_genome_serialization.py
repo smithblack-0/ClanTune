@@ -229,6 +229,40 @@ class TestGenomeSerialization:
         assert deep_level.metadata["mutation_chance"] == 0.1
 
 
+class TestMetadataSerialization:
+    """Test genome metadata survives serialization round-trip."""
+
+    def test_empty_metadata_round_trip(self):
+        """Genome with empty metadata survives round-trip."""
+        genome = Genome()
+        restored = Genome.deserialize(genome.serialize())
+        assert restored.metadata == {}
+
+    def test_metadata_round_trip(self):
+        """Genome with populated metadata survives round-trip."""
+        genome = Genome(metadata={"config": {"lr_path": "opt/0/lr"}, "version": 3})
+        restored = Genome.deserialize(genome.serialize())
+        assert restored.get_metadata("config") == {"lr_path": "opt/0/lr"}
+        assert restored.get_metadata("version") == 3
+
+
+class TestMetadataSerialization:
+    """Test genome metadata survives serialization round-trip."""
+
+    def test_empty_metadata_round_trip(self):
+        """Genome with empty metadata survives round-trip."""
+        genome = Genome()
+        restored = Genome.deserialize(genome.serialize())
+        assert restored.metadata == {}
+
+    def test_metadata_round_trip(self):
+        """Genome with populated metadata survives round-trip."""
+        genome = Genome(metadata={"config": {"lr_path": "opt/0/lr"}, "version": 3})
+        restored = Genome.deserialize(genome.serialize())
+        assert restored.get_metadata("config") == {"lr_path": "opt/0/lr"}
+        assert restored.get_metadata("version") == 3
+
+
 class TestSerializationContract:
     """Test serialization contract requirements."""
 

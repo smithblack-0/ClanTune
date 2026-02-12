@@ -208,6 +208,7 @@ class Genome:
         alleles: Optional[Dict[str, AbstractAllele]] = None,
         parents: Optional[List[Tuple[float, UUID]]] = None,
         fitness: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """
         Construct a genome.
@@ -218,11 +219,13 @@ class Genome:
             parents: Ancestry record as list of (probability, uuid) tuples in rank order.
                 None for initial genomes with no ancestry.
             fitness: Evaluation result. None until assigned.
+            metadata: Arbitrary genome-level storage for external systems. If None, empty dict.
         """
         self._uuid = uuid if uuid is not None else uuid4()
         self._alleles = alleles if alleles is not None else {}
         self._parents = parents
         self._fitness = fitness
+        self._metadata = metadata if metadata is not None else {}
 
     # Properties
 
@@ -252,6 +255,11 @@ class Genome:
         """Evaluation result. None until assigned."""
         return self._fitness
 
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Genome-level storage for external systems."""
+        return self._metadata
+
     # Core rebuilding method
 
     def with_overrides(
@@ -260,6 +268,7 @@ class Genome:
         alleles: Optional[Dict[str, AbstractAllele]] = None,
         parents: Optional[List[Tuple[float, UUID]]] = None,
         fitness: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> "Genome":
         """
         Reconstruct genome with specified fields replaced.
@@ -272,6 +281,7 @@ class Genome:
             alleles: New alleles dict, or None to preserve current alleles
             parents: New parents, or None to preserve current parents
             fitness: New fitness, or None to preserve current fitness
+            metadata: New metadata dict, or None to preserve current metadata
 
         Returns:
             New genome with specified fields replaced
@@ -281,6 +291,7 @@ class Genome:
             alleles=alleles if alleles is not None else self._alleles,
             parents=parents if parents is not None else self._parents,
             fitness=fitness if fitness is not None else self._fitness,
+            metadata=metadata if metadata is not None else self._metadata,
         )
 
     # Orchestrator methods
@@ -361,6 +372,35 @@ class Genome:
         """
         return self._fitness
 
+    def set_metadata(self, key: str, value: Any) -> "Genome":
+        """
+        Return new genome with metadata key set. Preserves UUID.
+
+        Args:
+            key: Metadata key
+            value: Metadata value
+
+        Returns:
+            New genome with updated metadata
+        """
+        new_metadata = {**self._metadata, key: value}
+        return self.with_overrides(metadata=new_metadata)
+
+    def get_metadata(self, key: str) -> Any:
+        """
+        Retrieve metadata value by key.
+
+        Args:
+            key: Metadata key
+
+        Returns:
+            Metadata value
+
+        Raises:
+            KeyError: If key is not present in metadata
+        """
+        return self._metadata[key]
+
     # Serialization methods
 
     def serialize(self) -> Dict[str, Any]:
@@ -389,6 +429,7 @@ class Genome:
             "alleles": serialized_alleles,
             "parents": serialized_parents,
             "fitness": self._fitness,
+            "metadata": self._metadata,
         }
 
     @classmethod
@@ -420,8 +461,9 @@ class Genome:
             ]
 
         fitness = data["fitness"]
+        metadata = data["metadata"]
 
-        return cls(uuid=uuid, alleles=alleles, parents=parents, fitness=fitness)
+        return cls(uuid=uuid, alleles=alleles, parents=parents, fitness=fitness, metadata=metadata)
 
     # Strategy support methods
 

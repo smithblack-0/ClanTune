@@ -54,7 +54,7 @@ Mutation chance parameters control how frequently mutations occur, providing an 
 
 Mutation strategies receive population and ancestry from the orchestrator. Simple mutations ignore these; population-aware mutations interpret them.
 
-**Population parameter:** All genomes in rank order. Enables comparative mutations (Differential Evolution samples difference vectors from population).
+**Population parameter:** Alleles at the current tree position, one per genome in rank order. Enables comparative mutations (Differential Evolution samples difference vectors from population allele values directly).
 
 **Ancestry parameter:** `List[Tuple[float, UUID]]` in rank order declaring parent contributions. Enables adaptive mutations based on selection strength. Hard constraint: don't use dead (0.0 probability) members. Flexible interpretation: how to use non-zero probabilities is strategy-specific.
 
@@ -84,10 +84,10 @@ Stores mutation parameters as instance fields.
 Implementation of AbstractMutationStrategy's handle_mutating hook. Reads std and mutation_chance from metadata (with fallback to defaults), applies Gaussian noise with specified probability.
 
 ```python
-handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
 ```
 
-**Receives:** allele (flattened, metadata contains raw values), population (all genomes, ignored by this strategy), ancestry (parent contributions, ignored by this strategy).
+**Receives:** allele (flattened, metadata contains raw values). Ignores allele_population and ancestry.
 
 **Returns:** New allele with Gaussian noise applied (if mutation triggered), or unchanged allele (if not triggered).
 
@@ -121,9 +121,9 @@ handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List
 
 **GaussianStd allele type:**
 - Extends: FloatAllele (continuous)
-- Constructor: `GaussianStd(base_std: float, can_change: bool = True)`
+- Constructor: `GaussianStd(base_std: float)`
 - Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}`
-- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable standard deviation
 
 **GaussianMutationChance allele type:**
@@ -179,10 +179,10 @@ Stores mutation parameters as instance fields.
 Implementation of AbstractMutationStrategy's handle_mutating hook. Reads scale and mutation_chance from metadata (with fallback to defaults), applies Cauchy noise with specified probability.
 
 ```python
-handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
 ```
 
-**Receives:** allele (flattened, metadata contains raw values), population (ignored), ancestry (ignored).
+**Receives:** allele (flattened, metadata contains raw values). Ignores allele_population and ancestry.
 
 **Returns:** New allele with Cauchy noise applied (if mutation triggered), or unchanged allele.
 
@@ -216,9 +216,9 @@ handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List
 
 **CauchyScale allele type:**
 - Extends: FloatAllele (continuous)
-- Constructor: `CauchyScale(base_scale: float, can_change: bool = True)`
+- Constructor: `CauchyScale(base_scale: float)`
 - Intrinsic domain: `{"min": 0.01 * base_scale, "max": 10.0 * base_scale}`
-- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable scale parameter
 
 **CauchyMutationChance allele type:**
@@ -253,7 +253,7 @@ Avoid when:
 
 ## DifferentialEvolution
 
-Fulfills AbstractMutationStrategy's handle_mutating contract. Implements population-aware mutation using scaled differences between population members. Instead of random noise, perturbations are computed from other genomes' values. Efficient for continuous optimization - typically 2-5x fewer evaluations than Gaussian. Architectural adaptation: respects ancestry by filtering to live members (ancestry probability > 0.0), samples base and difference vectors from live population only.
+Fulfills AbstractMutationStrategy's handle_mutating contract. Implements population-aware mutation using scaled differences between population members. Instead of random noise, perturbations are computed from other genomes' values. Efficient for continuous optimization - typically 2-5x fewer evaluations than Gaussian. Architectural adaptation: respects ancestry by filtering to live members (ancestry probability > 0.0); the current allele serves as the base, and only two difference vectors are sampled from live population.
 
 ### Constructor
 
@@ -265,7 +265,7 @@ Stores mutation parameters as instance fields.
 
 **Parameters:**
 - **default_F** (float, default 0.8): Scale factor for difference vectors when metalearning disabled. Typical range [0.5, 1.0].
-- **default_sampling_mode** (str, default "random"): Sampling mode for selecting base and difference vectors. Options: "random" (uniform from live population) or "weighted" (weighted by ancestry probabilities). Remains constant (not evolvable).
+- **default_sampling_mode** (str, default "random"): Sampling mode for selecting difference vectors. Options: "random" (uniform from live population) or "weighted" (weighted by ancestry probabilities). Remains constant (not evolvable).
 - **use_metalearning** (bool, default False): Enable metalearning. When False, uses constructor defaults. When True, injects evolvable F allele. sampling_mode remains constant (discrete parameter).
 
 **Validation:** If default_F <= 0, raise ValueError("F must be positive"). If default_sampling_mode not in ["random", "weighted"], raise ValueError("sampling_mode must be 'random' or 'weighted'").
@@ -275,10 +275,10 @@ Stores mutation parameters as instance fields.
 Implementation of AbstractMutationStrategy's handle_mutating hook. Identifies live population members from ancestry, samples base and difference vectors, computes perturbation from scaled difference.
 
 ```python
-handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
 ```
 
-**Receives:** allele (flattened, metadata contains raw values), population (all genomes), ancestry (parent contributions, used to identify live members).
+**Receives:** allele (flattened, metadata contains raw values). Uses allele_population and ancestry.
 
 **Returns:** New allele with differential evolution perturbation applied.
 
@@ -286,20 +286,20 @@ handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List
 
 1. Read F = allele.metadata.get("F", self.default_F)
 2. Read sampling_mode = allele.metadata.get("sampling_mode", self.default_sampling_mode)
-3. Identify live genome indices: live_indices = [i for i in range(len(population)) if ancestry[i][0] > 0.0]
+3. Identify live indices: live_indices = [i for i, (prob, _) in enumerate(ancestry) if prob > 0.0]
 4. If len(live_indices) < 3:
    - Raise ValueError("DifferentialEvolution requires at least 3 live population members")
-5. Extract live alleles from corresponding genomes at current allele position
-6. Sample base, diff1, diff2 from live alleles (without replacement, respecting sampling_mode):
-   - If sampling_mode == "random": uniform sampling from live_indices
-   - If sampling_mode == "weighted": weighted sampling using ancestry probabilities (renormalized over live members)
-7. Compute new_value = base.value + F * (diff1.value - diff2.value)
+5. Extract live_values from allele_population at live_indices (IntAllele uses raw_value; others use value)
+6. Sample (val1, val2) from live_values without replacement:
+   - If sampling_mode == "random": _choose_two(live_values) → (val1, val2)
+   - If sampling_mode == "weighted": _weighted_choose_two(live_values, live_weights) → (val1, val2)
+7. Compute new_value = allele.value + F * (val1 - val2)
 8. Return allele.with_value(new_value)
 
 **Type-specific handling:**
-- FloatAllele: new_value = base + F * (diff1 - diff2) (linear space)
-- IntAllele: new_value = base.raw_value + F * (diff1.raw_value - diff2.raw_value) (mutate underlying float)
-- LogFloatAllele: new_value = base * ((diff1 / diff2) ** F) (multiplicative in log space)
+- FloatAllele: new_value = allele.value + F * (val1 - val2) (linear space)
+- IntAllele: new_value = allele.raw_value + F * (val1 - val2) (live_values uses raw_value)
+- LogFloatAllele: new_value = allele.value * (val1 / val2) ** F (multiplicative in log space)
 
 ### Metalearning
 
@@ -314,9 +314,9 @@ handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List
 
 **DifferentialEvolutionF allele type:**
 - Extends: FloatAllele (continuous)
-- Constructor: `DifferentialEvolutionF(base_F: float, can_change: bool = True)`
+- Constructor: `DifferentialEvolutionF(base_F: float)`
 - Intrinsic domain: `{"min": 0.5, "max": 2.0}`
-- Flags: can_mutate=can_change, can_crossbreed=can_change
+- Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable scale factor
 
 ### Contracts
@@ -327,7 +327,7 @@ handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List
 - Supports FloatAllele, IntAllele, LogFloatAllele (continuous types)
 - Population-aware: uses ancestry to identify live members (probability > 0.0)
 - Constraint: requires >= 3 live population members (raises ValueError otherwise)
-- Sampling without replacement: base, diff1, diff2 must be distinct
+- Sampling without replacement: diff1, diff2 sampled without replacement from live values
 
 ### When to Use
 
@@ -365,10 +365,10 @@ Stores mutation parameter as instance field.
 Implementation of AbstractMutationStrategy's handle_mutating hook. Reads mutation_chance from metadata (with fallback to default), samples uniformly from allele domain with specified probability.
 
 ```python
-handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
 ```
 
-**Receives:** allele (flattened, metadata contains raw values), population (ignored), ancestry (ignored).
+**Receives:** allele (flattened, metadata contains raw values). Ignores allele_population and ancestry.
 
 **Returns:** New allele with uniformly sampled value (if mutation triggered), or unchanged allele.
 

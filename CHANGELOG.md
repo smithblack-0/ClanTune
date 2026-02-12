@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Concrete mutation strategies (src/clan_tune/genetics/mutation_strategies.py): GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation with metalearning allele types (GaussianStd, GaussianMutationChance, CauchyScale, CauchyMutationChance, DifferentialEvolutionF, UniformMutationChance)
+- Test suite for concrete mutation strategies (49 tests)
+- AbstractMutationStrategy refactored: handle_mutating now receives allele_population (List[AbstractAllele], parallel alleles at current tree position) instead of population (List[Genome])
 - Concrete crossbreeding strategies (src/clan_tune/genetics/crossbreeding_strategies.py): WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
 - SBXEta allele subclass (extends FloatAllele, domain [2.0, 30.0]) for SBX metalearning support
 - Test suite for concrete crossbreeding strategies (38 tests)

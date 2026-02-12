@@ -91,7 +91,7 @@ class AbstractAncestryStrategy(AbstractStrategy):
     - Index corresponds to population rank
     - Tuple (probability, uuid) declares contribution strength
     - Probability 0.0 means excluded from reproduction
-    - Sum of probabilities typically equals 1.0 (not enforced)
+    - Probabilities must sum to 1.0
 
     Stateless. Concrete subclasses define selection parameters.
     """
@@ -135,6 +135,13 @@ class AbstractAncestryStrategy(AbstractStrategy):
                 f"Ancestry length ({len(ancestry)}) must equal population size ({len(population)})"
             )
 
+        # Validation 4: Ancestry probabilities must sum to 1.0
+        total = sum(prob for prob, _ in ancestry)
+        if abs(total - 1.0) > 1e-9:
+            raise ValueError(
+                f"Ancestry probabilities must sum to 1.0, got {total}"
+            )
+
         return ancestry
 
     @abstractmethod
@@ -156,7 +163,7 @@ class AbstractAncestryStrategy(AbstractStrategy):
             - List length equals population size
             - Index corresponds to population rank
             - Probability 0.0 means no contribution
-            - Sum typically equals 1.0 (not enforced)
+            - Probabilities must sum to 1.0
         """
         ...
 
@@ -238,8 +245,8 @@ class AbstractMutationStrategy(AbstractStrategy):
     differential evolution using other genomes' values). Simple mutations ignore
     these parameters.
 
-    Delegates to genome.update_alleles for tree traversal, implementing only the
-    allele-level mutation logic via handle_mutating hook.
+    Delegates to genome.synthesize_new_alleles for tree traversal, implementing only
+    the allele-level mutation logic via handle_mutating hook.
 
     Stateless. Concrete subclasses define mutation parameters.
     """
@@ -253,9 +260,9 @@ class AbstractMutationStrategy(AbstractStrategy):
         """
         Mutate genome alleles to introduce variation.
 
-        Orchestrates mutation by delegating to genome.update_alleles, passing
-        self.handle_mutating as handler with population and ancestry injected via
-        kwargs dict. Only processes alleles with can_mutate=True recursively.
+        Orchestrates mutation by delegating to genome.synthesize_new_alleles, passing
+        self.handle_mutating as handler with ancestry injected via kwargs dict. Only
+        processes alleles with can_mutate=True recursively.
 
         Args:
             genome: Genome to mutate
@@ -293,7 +300,7 @@ class AbstractMutationStrategy(AbstractStrategy):
     def handle_mutating(
         self,
         allele: AbstractAllele,
-        population: List[AbstractAllele],
+        allele_population: List[AbstractAllele],
         ancestry: List[Tuple[float, UUID]],
     ) -> AbstractAllele:
         """
@@ -301,11 +308,11 @@ class AbstractMutationStrategy(AbstractStrategy):
 
         Concrete strategies implement mutation algorithms: Gaussian noise, Cauchy
         perturbations, differential evolution, uniform sampling, etc. Population-aware
-        strategies use population/ancestry parameters; simple mutations ignore them.
+        strategies use allele_population/ancestry parameters; simple mutations ignore them.
 
         Args:
             allele: Allele to mutate (flattened metadata contains raw values)
-            population: Alleles in the population at this location.
+            allele_population: Alleles in the population at this location.
             ancestry: Parent contributions (for adaptive mutations)
 
         Returns:

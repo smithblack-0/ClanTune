@@ -81,7 +81,7 @@ typehints, and implement their own strategies. Aligning with the vision for conc
 Separates parent selection (declare) from allele synthesis (interpret) or model synthesis (interpret). Ancestry strategies decide which genomes become parents and their contribution probabilities; crossbreeding strategies interpret those decisions to synthesize allele values. This decoupling keeps genome package ignorant of model/optimizer crossbreeding - selection is about fitness, synthesis is about values.
 
 The declare-interpret paradigm: AbstractAncestryStrategy declares "these parents with this strength" producing an ancestry data structure. Downstream systems (AbstractCrossbreedingStrategy, model state reconstruction) interpret that declaration. This separation enables mixing selection strategies (tournament, fitness-weighted, diversity-based) with synthesis strategies (weighted average, dominant parent, stochastic sampling) independently.t
-An ancestry is a list of population length containing for each population member the probability assigned to that parent's contribution and the UUID of the parent. The sum of probabilities typically equals 1.0 (though not enforced - interpreters decide). UUIDs identify population members when ancestry was decided.
+An ancestry is a list of population length containing for each population member the probability assigned to that parent's contribution and the UUID of the parent. Probabilities must sum to 1.0. UUIDs identify population members when ancestry was decided.
 
 The owned responsibility of the abstract class is orchestration into the concrete user hook.
 
@@ -120,7 +120,7 @@ Returns ancestry as `[(probability, uuid), ...]` in rank order where:
 - Index corresponds to rank
 - Entry `(probability, uuid)` indicates that rank's contribution
 - Probability 0.0 means no contribution from that parent
-- Sum of probabilities typically equals 1.0 (not enforced - interpreters decide)
+- Probabilities must sum to 1.0
 
 **Implementation pattern:** Concrete strategies typically sort population by fitness, apply selection logic (top-k, tournament, weighted sampling), then construct ancestry list in original rank order with selected parents having non-zero probabilities. Injection of my_genome allows decisions to be made about survivorship.
 
@@ -502,7 +502,7 @@ A genome, by virtue of its stored hyperparameters and ancestry, is *expressed* b
 - UUID assignment, fitness, and parents/ancestry on output genomes — these are StrategyOrchestrator's responsibility. Individual strategies return genomes whose UUID/fitness/parents reflect whatever the underlying genome utilities produce; the orchestrator is solely responsible for ensuring the final offspring has the correct ancestry attached.
 
 **Strategies delegate to:**
-- Genome utilities: update_alleles, synthesize_new_alleles (which delegate to walk_genome_alleles, synthesize_genomes)
+- Genome utilities: synthesize_new_alleles (which delegates to walk_genome_alleles, synthesize_genomes)
 - Allele utilities: walk_allele_trees, synthesize_allele_trees (via genome utilities)
 - Predicate filters: CanMutateFilter, CanCrossbreedFilter (for allele-level strategies)
 

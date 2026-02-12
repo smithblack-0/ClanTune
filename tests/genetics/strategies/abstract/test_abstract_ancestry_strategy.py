@@ -139,23 +139,22 @@ def test_apply_strategy_allows_zero_probabilities():
     assert ancestry[1] == (0.0, genome2.uuid)
 
 
-def test_apply_strategy_does_not_enforce_probability_sum():
-    """Ancestry probabilities don't need to sum to 1.0 (interpreter's choice)."""
+def test_apply_strategy_enforces_probability_sum():
+    """Ancestry probabilities must sum to 1.0; non-1.0 sum raises ValueError."""
 
-    class CustomProbabilityStrategy(AbstractAncestryStrategy):
+    class BadSumStrategy(AbstractAncestryStrategy):
         def select_ancestry(self, my_genome, population):
-            # Return probabilities that sum to 2.0 (not enforced)
+            # Return probabilities that sum to 2.0
             return [(1.0, genome.uuid) for genome in population]
 
-    strategy = CustomProbabilityStrategy()
+    strategy = BadSumStrategy()
     genome1 = Genome(alleles={"lr": FloatAllele(0.01)})
     genome1 = genome1.with_overrides(fitness=0.3)
     genome2 = Genome(alleles={"lr": FloatAllele(0.02)})
     genome2 = genome2.with_overrides(fitness=0.5)
 
-    # Should not raise even though sum = 2.0
-    ancestry = strategy.apply_strategy(genome1, [genome1, genome2])
-    assert sum(prob for prob, _ in ancestry) == 2.0
+    with pytest.raises(ValueError, match="Ancestry probabilities must sum to 1.0"):
+        strategy.apply_strategy(genome1, [genome1, genome2])
 
 
 def test_apply_strategy_works_with_single_genome():

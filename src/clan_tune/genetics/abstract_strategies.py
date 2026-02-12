@@ -265,18 +265,35 @@ class AbstractMutationStrategy(AbstractStrategy):
         Returns:
             New genome with mutated alleles
         """
+
+        # Adapt synthesize new genome. We need synthesize genome to allow
+        # operation with a allele that is not in population. We do this by
+        # inserting it and then removing it before usage
+        population = population.copy()
+        population.append(genome)
+
+        def handle_adapter(allele: AbstractAllele,
+                           allele_population: List[AbstractAllele],
+                           ancestry: List[Tuple[float, UUID]],
+                           )->AbstractAllele:
+            allele_population = allele_population.copy()
+            allele_population.pop()
+            return self.handle_mutating(allele, allele_population, ancestry)
+
+
         # Delegate to genome utility, injecting population and ancestry via kwargs
-        return genome.update_alleles(
-            self.handle_mutating,
+        return genome.synthesize_new_alleles(
+            population,
+            handle_adapter,
             predicate=CanMutateFilter(True),
-            kwargs={"population": population, "ancestry": ancestry},
+            kwargs={"ancestry": ancestry},
         )
 
     @abstractmethod
     def handle_mutating(
         self,
         allele: AbstractAllele,
-        population: List[Genome],
+        population: List[AbstractAllele],
         ancestry: List[Tuple[float, UUID]],
     ) -> AbstractAllele:
         """
@@ -288,7 +305,7 @@ class AbstractMutationStrategy(AbstractStrategy):
 
         Args:
             allele: Allele to mutate (flattened metadata contains raw values)
-            population: All genomes (for population-aware mutations)
+            population: Alleles in the population at this location.
             ancestry: Parent contributions (for adaptive mutations)
 
         Returns:

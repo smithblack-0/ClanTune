@@ -197,13 +197,13 @@ Abstract class is Stateless. Class is intended to be subclassed. Concrete classe
 
 Abstract responsibility.
 
-Implements the abstract apply_strategy contract from AbstractStrategy for genome mutation. Orchestrates mutation by dispatching to the handle_mutating hook with can_mutate filtering. Adapts handler to inject population and ancestry as kwargs through genome.update_alleles. The primary responsibility of the class is orchestrating the injection of the user's hook into the existing walking and modification mechanisms.
+Implements the abstract apply_strategy contract from AbstractStrategy for genome mutation. Orchestrates mutation by dispatching to the handle_mutating hook with can_mutate filtering. Delegates to genome.synthesize_new_alleles, passing population for allele-parallel walking and ancestry via kwargs. The primary responsibility of the class is orchestrating the injection of the user's hook into the existing walking and modification mechanisms.
 
 ```python
 apply_strategy(genome: Genome, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> Genome
 ```
 
-Delegates to genome.update_alleles, passing self.handle_mutating as handler, CanMutateFilter(True) as predicate, and population/ancestry via kwargs dict. Returns new genome with mutated alleles. Only processes alleles with can_mutate == True, recursively including metadata alleles.
+Delegates to genome.synthesize_new_alleles, passing population and handle_mutating as handler with CanMutateFilter(True) as predicate. Ancestry injected via kwargs. Returns new genome with mutated alleles. Only processes alleles with can_mutate == True, recursively including metadata alleles.
 
 ### handle_mutating
 
@@ -212,14 +212,16 @@ Concrete responsibility. Only interface defined here.
 Problem-specific hook that concrete strategies must implement to define mutation logic for individual alleles. Receives flattened allele plus population and ancestry context. Abstract, must be implemented by concrete classes.
 
 ```python
-handle_mutating(allele: AbstractAllele, population: List[Genome], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
+handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele], ancestry: List[Tuple[float, UUID]]) -> AbstractAllele
 ```
 
-Receives flattened allele (metadata contains raw values where nested alleles have been replaced by their values), population, and ancestry. Returns new allele, typically constructed via allele.with_value(new_value). Simple mutations ignore population and ancestry parameters.
+Receives flattened allele (metadata contains raw values where nested alleles have been replaced by their values), allele_population, and ancestry. Returns new allele, typically constructed via allele.with_value(new_value). Simple mutations ignore population and ancestry parameters.
 
 It is extremely important to use allele.metadata.get("name", self.name_default) to make code that can robustly handle the situation where algorithm parameters are metalearned or just left alone. This checks for a metalearning allele value first, then falls back to default values if none is available.
 
 Even strategies without metalearning are encouraged to be implemented this way in case future extensions for metalearning are desired. 
+
+While the allele entry above is an offspring in the current generation, the allele_population is from the last generation.
 
 ### Contracts
 
@@ -227,7 +229,7 @@ Even strategies without metalearning are encouraged to be implemented this way i
 - Output: new genome
 - Preserves genome structure (same hyperparameters)
 - Only mutates alleles with can_mutate == True (recursively)
-- Handler receives allele, population, ancestry unpacked from kwargs dict
+- Handler receives allele (template), allele_population (parallel alleles from population at same tree position), and ancestry
 - Must work with or without metadata
 - Population-aware mutations may use population/ancestry; simple mutations ignore them
 

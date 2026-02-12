@@ -24,17 +24,16 @@ class AdditiveMutation(AbstractMutationStrategy):
 
 
 class PopulationAwareMutation(AbstractMutationStrategy):
-    """Test double using population parameter (differential evolution pattern)."""
+    """Test double demonstrating population-aware mutation using allele values directly."""
 
     def handle_mutating(self, allele, population, ancestry):
-        """Use population mean as perturbation reference."""
+        """Perturb value toward population mean."""
         if len(population) < 2:
             return allele
 
-        # Get mean value from population (simplified DE)
-        # This requires extracting values from population genomes
-        # For testing, just verify population is accessible
-        return allele.with_value(allele.value + 0.001)
+        # population is List[AbstractAllele] — values accessible without navigating Genome
+        mean_value = sum(a.value for a in population) / len(population)
+        return allele.with_value(mean_value)
 
 
 # AbstractMutationStrategy Tests
@@ -82,8 +81,8 @@ def test_apply_strategy_processes_can_mutate_alleles_only():
     assert mutated.alleles["wd"].value == 0.001
 
 
-def test_handle_mutating_receives_population_parameter():
-    """handle_mutating receives population parameter for population-aware mutations."""
+def test_handle_mutating_receives_allele_population():
+    """handle_mutating receives allele_population: parallel AbstractAlleles from population at same tree position."""
 
     class InspectingStrategy(AbstractMutationStrategy):
         def __init__(self):
@@ -105,8 +104,52 @@ def test_handle_mutating_receives_population_parameter():
 
     strategy.apply_strategy(genome1, population, ancestry)
 
-    # Verify population parameter passed through
-    assert strategy.received_population == population
+    # Received alleles, not Genome objects
+    assert len(strategy.received_population) == len(population)
+    assert all(isinstance(a, FloatAllele) for a in strategy.received_population)
+    # Values correspond to population members' lr alleles in population order
+    assert strategy.received_population[0].value == pytest.approx(0.01)
+    assert strategy.received_population[1].value == pytest.approx(0.02)
+
+
+def test_allele_population_excludes_genome_being_mutated():
+    """allele_population does not include the allele from the genome being mutated.
+
+    This is critical for DifferentialEvolution: the three donor vectors must be
+    drawn from the population, not the offspring being mutated.
+    """
+
+    class InspectingStrategy(AbstractMutationStrategy):
+        def __init__(self):
+            self.received_population = None
+
+        def handle_mutating(self, allele, population, ancestry):
+            self.received_population = population
+            return allele
+
+    strategy = InspectingStrategy()
+
+    genome1 = Genome(alleles={"lr": FloatAllele(0.01)})
+    genome1 = genome1.with_overrides(fitness=0.3)
+    genome2 = Genome(alleles={"lr": FloatAllele(0.02)})
+    genome2 = genome2.with_overrides(fitness=0.5)
+
+    # offspring is separate from the parent population (as in StrategyOrchestrator)
+    offspring = Genome(alleles={"lr": FloatAllele(0.015)})
+
+    population = [genome1, genome2]
+    ancestry = [(0.6, genome1.uuid), (0.4, genome2.uuid)]
+
+    strategy.apply_strategy(offspring, population, ancestry)
+
+    # allele_population has one entry per population member, not population+1
+    assert len(strategy.received_population) == len(population)
+    # offspring's allele value (0.015) is absent
+    population_values = [a.value for a in strategy.received_population]
+    assert pytest.approx(0.015) not in population_values
+    # Parent population values are present
+    assert population_values[0] == pytest.approx(0.01)
+    assert population_values[1] == pytest.approx(0.02)
 
 
 def test_handle_mutating_receives_ancestry_parameter():
@@ -175,7 +218,7 @@ def test_mutation_with_multiple_hyperparameters():
 
 
 def test_population_aware_mutation_can_access_population():
-    """Population-aware mutations can access population parameter."""
+    """Population-aware mutations can read allele values directly from allele_population."""
     strategy = PopulationAwareMutation()
 
     genome1 = Genome(alleles={"lr": FloatAllele(0.01)})
@@ -186,10 +229,11 @@ def test_population_aware_mutation_can_access_population():
     population = [genome1, genome2]
     ancestry = [(0.6, genome1.uuid), (0.4, genome2.uuid)]
 
-    mutated = strategy.apply_strategy(genome1, population, ancestry)
+    offspring = Genome(alleles={"lr": FloatAllele(0.01)})
+    mutated = strategy.apply_strategy(offspring, population, ancestry)
 
-    # Mutation succeeded (used population parameter)
-    assert mutated.alleles["lr"].value == pytest.approx(0.011)
+    # Result is mean of population allele values: (0.01 + 0.02) / 2 = 0.015
+    assert mutated.alleles["lr"].value == pytest.approx(0.015)
 
 
 def test_simple_mutation_can_ignore_population_ancestry():

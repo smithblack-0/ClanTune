@@ -37,18 +37,17 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 
 **Reference directory (consult documents/ as needed for specific work):**
 
-- documents/abstract_strategies.md - abstract base classes for strategy system (ancestry, crossbreeding, mutation)
-- documents/ancestry_strategies.md - concrete ancestry strategies (TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection)
-- documents/crossbreeding_strategies.md - concrete crossbreeding strategies (WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover)
-- documents/mutation_strategies.md - concrete mutation strategies (GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation)
-- documents/concrete_strategies_plan.md - architectural decisions and composability principles for concrete strategies
-- documents/Allele.md - allele design and mutation behavior
+- documents/genetics/abstract_strategies.md - abstract base classes for strategy system (ancestry, crossbreeding, mutation)
+- documents/genetics/ancestry_strategies.md - concrete ancestry strategies (TournamentSelection, EliteBreeds, RankSelection, BoltzmannSelection)
+- documents/genetics/crossbreeding_strategies.md - concrete crossbreeding strategies (WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover)
+- documents/genetics/mutation_strategies.md - concrete mutation strategies (GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation)
+- documents/genetics/Allele.md - allele design and mutation behavior
+- documents/genetics/genome.md - genome structure, utilities, and orchestration interface
+- documents/genetics/tree_utiliities.md - utilities for working with parameter trees
 - documents/expression.md - how genomes express into training hyperparameters
 - documents/genetics_lifecycle.md - system architecture, component responsibilities, and evolution flow
-- documents/genome.md - genome structure, utilities, and orchestration interface
 - documents/individual.md - clan member (individual) structure and state
 - documents/state.md - state management and serialization
-- documents/tree_utiliities.md - utilities for working with parameter trees
 
 DO NOT PROCEED FURTHER IN EXPLORATION WITHOUT MUSING OVER THE CONSEQUENCES OF THESE FILES AFTER READING THEM. THEY HAVE REAL, SERIOUS CONSEQUENCES ON THE INVARIENTS ALLOWED OR FORBIDDEN DURING DEVELOPMENT.
 

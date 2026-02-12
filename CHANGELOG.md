@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Concrete mutation strategies (src/clan_tune/genetics/mutation_strategies.py): GaussianMutation, CauchyMutation, DifferentialEvolution, UniformMutation with metalearning allele types (GaussianStd, GaussianMutationChance, CauchyScale, CauchyMutationChance, DifferentialEvolutionF, UniformMutationChance)
-- Test suite for concrete mutation strategies (49 tests)
+- Test suite for concrete mutation strategies (59 tests)
 - AbstractMutationStrategy refactored: handle_mutating now receives allele_population (List[AbstractAllele], parallel alleles at current tree position) instead of population (List[Genome])
 - Concrete crossbreeding strategies (src/clan_tune/genetics/crossbreeding_strategies.py): WeightedAverage, DominantParent, SimulatedBinaryCrossover, StochasticCrossover
 - SBXEta allele subclass (extends FloatAllele, domain [2.0, 30.0]) for SBX metalearning support
@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
+- Ancestry probabilities now enforced to sum to 1.0 in AbstractAncestryStrategy.apply_strategy (spec said "not enforced", should have been required)
+- GaussianMutation/CauchyMutation now raise TypeError on unsupported allele types (was silently returning allele unchanged)
+- GaussianStd/CauchyScale with_overrides now preserve original domain bounds (was rescaling domain to new value, causing positive feedback loop)
+- abstract_strategies.md: removed stale update_alleles reference from delegation section, fixed ancestry normalization language
+- mutation_strategies.md: "skip silently" → "raise TypeError" for unsupported types, domain descriptions clarified as static after init
+- AbstractMutationStrategy.handle_mutating parameter renamed population → allele_population for consistency with spec and concrete classes
+- _DeterministicGaussian/_DeterministicCauchy test subclasses now override _random() for deterministic mutation_chance path testing
 
 ## [0.4.0] - 2026-02-10
 

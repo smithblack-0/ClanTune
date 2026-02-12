@@ -28,26 +28,20 @@ class GaussianStd(FloatAllele):
     Injected into allele metadata["std"] during setup when use_metalearning=True.
     """
 
-    def __init__(self, base_std: float):
+    def __init__(self, base_std: float, *, _domain=None):
         super().__init__(
             base_std,
-            domain={"min": 0.01 * base_std, "max": 10.0 * base_std},
+            domain=_domain if _domain is not None else {"min": 0.01 * base_std, "max": 10.0 * base_std},
             can_mutate=True,
             can_crossbreed=True,
         )
 
     def with_overrides(self, **constructor_overrides: Any) -> "GaussianStd":
         """Construct new GaussianStd preserving original domain bounds."""
-        new = GaussianStd.__new__(GaussianStd)
-        FloatAllele.__init__(
-            new,
-            value=constructor_overrides.get("value", self.value),
-            domain=constructor_overrides.get("domain", self._domain),
-            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
-            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
-            metadata=constructor_overrides.get("metadata", self._metadata),
+        return GaussianStd(
+            base_std=constructor_overrides.get("value", self.value),
+            _domain=constructor_overrides.get("domain", self._domain),
         )
-        return new
 
 
 class GaussianMutationChance(FloatAllele):
@@ -74,26 +68,20 @@ class CauchyScale(FloatAllele):
     Injected into allele metadata["scale"] during setup when use_metalearning=True.
     """
 
-    def __init__(self, base_scale: float):
+    def __init__(self, base_scale: float, *, _domain=None):
         super().__init__(
             base_scale,
-            domain={"min": 0.01 * base_scale, "max": 10.0 * base_scale},
+            domain=_domain if _domain is not None else {"min": 0.01 * base_scale, "max": 10.0 * base_scale},
             can_mutate=True,
             can_crossbreed=True,
         )
 
     def with_overrides(self, **constructor_overrides: Any) -> "CauchyScale":
         """Construct new CauchyScale preserving original domain bounds."""
-        new = CauchyScale.__new__(CauchyScale)
-        FloatAllele.__init__(
-            new,
-            value=constructor_overrides.get("value", self.value),
-            domain=constructor_overrides.get("domain", self._domain),
-            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
-            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
-            metadata=constructor_overrides.get("metadata", self._metadata),
+        return CauchyScale(
+            base_scale=constructor_overrides.get("value", self.value),
+            _domain=constructor_overrides.get("domain", self._domain),
         )
-        return new
 
 
 class CauchyMutationChance(FloatAllele):

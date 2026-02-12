@@ -38,7 +38,7 @@ This produces proportional perturbations appropriate for log-scale parameters li
 
 **BoolAllele, StringAllele** - discrete types. Mutation strategies skip these (expected to have can_mutate=False). Future extensions may add discrete mutation support.
 
-**Contract:** Each mutation strategy must specify which types it supports and how it mutates each. Strategies operating on unsupported types with can_mutate=True should skip those alleles silently (filtering handles this via can_mutate flag).
+**Contract:** Each mutation strategy must specify which types it supports and how it mutates each. Strategies receiving unsupported types must raise TypeError. The can_mutate flag is the expected defense against this, but if an unsupported type reaches the handler, it indicates misconfiguration — crash, never silently corrupt.
 
 ### Exploration vs Exploitation
 
@@ -122,7 +122,7 @@ handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele],
 **GaussianStd allele type:**
 - Extends: FloatAllele (continuous)
 - Constructor: `GaussianStd(base_std: float)`
-- Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}`
+- Intrinsic domain: `{"min": 0.01 * base_std, "max": 10.0 * base_std}` — fixed at init, preserved through with_overrides
 - Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable standard deviation
 
@@ -217,7 +217,7 @@ handle_mutating(allele: AbstractAllele, allele_population: List[AbstractAllele],
 **CauchyScale allele type:**
 - Extends: FloatAllele (continuous)
 - Constructor: `CauchyScale(base_scale: float)`
-- Intrinsic domain: `{"min": 0.01 * base_scale, "max": 10.0 * base_scale}`
+- Intrinsic domain: `{"min": 0.01 * base_scale, "max": 10.0 * base_scale}` — fixed at init, preserved through with_overrides
 - Flags: can_mutate=True, can_crossbreed=True
 - Purpose: Evolvable scale parameter
 

@@ -23,8 +23,9 @@ class GaussianStd(FloatAllele):
     """
     Evolvable standard deviation for GaussianMutation metalearning.
 
-    Domain scales proportionally: [0.01 * std, 10.0 * std]. Injected into allele
-    metadata["std"] during setup when use_metalearning=True.
+    Domain fixed at init from base_std: [0.01 * base_std, 10.0 * base_std].
+    Preserved through with_overrides — value changes but domain stays static.
+    Injected into allele metadata["std"] during setup when use_metalearning=True.
     """
 
     def __init__(self, base_std: float):
@@ -36,8 +37,17 @@ class GaussianStd(FloatAllele):
         )
 
     def with_overrides(self, **constructor_overrides: Any) -> "GaussianStd":
-        """Construct new GaussianStd with domain scaled to new value."""
-        return GaussianStd(base_std=constructor_overrides.get("value", self.value))
+        """Construct new GaussianStd preserving original domain bounds."""
+        new = GaussianStd.__new__(GaussianStd)
+        FloatAllele.__init__(
+            new,
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+        return new
 
 
 class GaussianMutationChance(FloatAllele):
@@ -59,8 +69,9 @@ class CauchyScale(FloatAllele):
     """
     Evolvable scale parameter for CauchyMutation metalearning.
 
-    Domain scales proportionally: [0.01 * scale, 10.0 * scale]. Injected into
-    allele metadata["scale"] during setup when use_metalearning=True.
+    Domain fixed at init from base_scale: [0.01 * base_scale, 10.0 * base_scale].
+    Preserved through with_overrides — value changes but domain stays static.
+    Injected into allele metadata["scale"] during setup when use_metalearning=True.
     """
 
     def __init__(self, base_scale: float):
@@ -72,8 +83,17 @@ class CauchyScale(FloatAllele):
         )
 
     def with_overrides(self, **constructor_overrides: Any) -> "CauchyScale":
-        """Construct new CauchyScale with domain scaled to new value."""
-        return CauchyScale(base_scale=constructor_overrides.get("value", self.value))
+        """Construct new CauchyScale preserving original domain bounds."""
+        new = CauchyScale.__new__(CauchyScale)
+        FloatAllele.__init__(
+            new,
+            value=constructor_overrides.get("value", self.value),
+            domain=constructor_overrides.get("domain", self._domain),
+            can_mutate=constructor_overrides.get("can_mutate", self.can_mutate),
+            can_crossbreed=constructor_overrides.get("can_crossbreed", self.can_crossbreed),
+            metadata=constructor_overrides.get("metadata", self._metadata),
+        )
+        return new
 
 
 class CauchyMutationChance(FloatAllele):
@@ -198,7 +218,7 @@ class GaussianMutation(AbstractMutationStrategy):
         elif isinstance(allele, FloatAllele):
             return allele.with_value(allele.value + noise)
 
-        return allele  # Unsupported discrete type, skip silently
+        raise TypeError(f"GaussianMutation does not support {type(allele).__name__}")
 
 
 class CauchyMutation(AbstractMutationStrategy):
@@ -270,7 +290,7 @@ class CauchyMutation(AbstractMutationStrategy):
         elif isinstance(allele, FloatAllele):
             return allele.with_value(allele.value + noise)
 
-        return allele  # Unsupported discrete type, skip silently
+        raise TypeError(f"CauchyMutation does not support {type(allele).__name__}")
 
 
 class DifferentialEvolution(AbstractMutationStrategy):

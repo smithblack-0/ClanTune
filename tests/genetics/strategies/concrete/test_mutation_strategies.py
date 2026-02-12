@@ -30,25 +30,37 @@ from src.clan_tune.genetics.mutation_strategies import (
 
 
 class _DeterministicGaussian(GaussianMutation):
-    """Overrides _gauss to yield from a fixed noise sequence."""
+    """Overrides _gauss and _random to yield from fixed sequences."""
 
-    def __init__(self, noise_sequence, **kwargs):
+    def __init__(self, noise_sequence, random_sequence=None, **kwargs):
         super().__init__(**kwargs)
         self._it = iter(noise_sequence)
+        self._random_it = iter(random_sequence) if random_sequence is not None else None
 
     def _gauss(self, std):
         return next(self._it)
 
+    def _random(self):
+        if self._random_it is not None:
+            return next(self._random_it)
+        return 0.0  # Always mutate when no sequence provided
+
 
 class _DeterministicCauchy(CauchyMutation):
-    """Overrides _cauchy to yield from a fixed noise sequence."""
+    """Overrides _cauchy and _random to yield from fixed sequences."""
 
-    def __init__(self, noise_sequence, **kwargs):
+    def __init__(self, noise_sequence, random_sequence=None, **kwargs):
         super().__init__(**kwargs)
         self._it = iter(noise_sequence)
+        self._random_it = iter(random_sequence) if random_sequence is not None else None
 
     def _cauchy(self, scale):
         return next(self._it)
+
+    def _random(self):
+        if self._random_it is not None:
+            return next(self._random_it)
+        return 0.0  # Always mutate when no sequence provided
 
 
 class _DeterministicDE(DifferentialEvolution):
@@ -157,11 +169,10 @@ class TestGaussianMutation:
         result = s.handle_mutating(allele, [], [])
         assert result.value == pytest.approx(0.01 * math.exp(0.1))
 
-    def test_bool_allele_skipped_silently(self):
+    def test_bool_allele_raises_type_error(self):
         s = GaussianMutation(default_mutation_chance=1.0)
-        allele = BoolAllele(True)
-        result = s.handle_mutating(allele, [], [])
-        assert result.value is True
+        with pytest.raises(TypeError, match="GaussianMutation does not support BoolAllele"):
+            s.handle_mutating(BoolAllele(True), [], [])
 
     def test_reads_std_from_flattened_metadata(self):
         s = _DeterministicGaussian([0.05], default_std=99.0, default_mutation_chance=1.0)
@@ -177,6 +188,38 @@ class TestGaussianMutation:
         result = s.handle_mutating(FloatAllele(0.5), [], [])
         assert result.value == pytest.approx(0.6)
 
+    def test_mutation_chance_skips_when_random_exceeds_chance(self):
+        # random returns 0.5, mutation_chance=0.3 → 0.5 > 0.3 → skip
+        s = _DeterministicGaussian([999.0], random_sequence=[0.5], default_mutation_chance=0.3)
+        result = s.handle_mutating(FloatAllele(0.5), [], [])
+        assert result.value == pytest.approx(0.5)
+
+    def test_mutation_chance_mutates_when_random_below_chance(self):
+        # random returns 0.1, mutation_chance=0.3 → 0.1 <= 0.3 → mutate
+        s = _DeterministicGaussian([0.05], random_sequence=[0.1], default_mutation_chance=0.3)
+        result = s.handle_mutating(FloatAllele(0.5), [], [])
+        assert result.value == pytest.approx(0.55)
+
+
+class TestGaussianStdDomainPreservation:
+    def test_with_overrides_preserves_original_domain(self):
+        std = GaussianStd(base_std=0.1)
+        original_domain = std.domain
+        updated = std.with_overrides(value=0.5)
+        assert updated.domain == original_domain
+
+    def test_with_overrides_updates_value(self):
+        std = GaussianStd(base_std=0.1)
+        updated = std.with_overrides(value=0.5)
+        assert updated.value == pytest.approx(0.5)
+
+    def test_domain_does_not_rescale_on_override(self):
+        std = GaussianStd(base_std=0.1)
+        # Original domain: min=0.001, max=1.0
+        updated = std.with_overrides(value=1.0)
+        # If domain rescaled, it would be min=0.01, max=10.0. Must stay at original.
+        assert updated.domain["min"] == pytest.approx(0.001)
+        assert updated.domain["max"] == pytest.approx(1.0)
 
 
 # ─── CauchyMutation Tests ─────────────────────────────────────────────────────
@@ -225,10 +268,10 @@ class TestCauchyMutation:
         result = s.handle_mutating(allele, [], [])
         assert result.value == pytest.approx(0.01 * math.exp(0.1))
 
-    def test_bool_allele_skipped_silently(self):
+    def test_bool_allele_raises_type_error(self):
         s = CauchyMutation(default_mutation_chance=1.0)
-        result = s.handle_mutating(BoolAllele(False), [], [])
-        assert result.value is False
+        with pytest.raises(TypeError, match="CauchyMutation does not support BoolAllele"):
+            s.handle_mutating(BoolAllele(False), [], [])
 
     def test_reads_scale_from_flattened_metadata(self):
         s = _DeterministicCauchy([0.05], default_scale=99.0, default_mutation_chance=1.0)
@@ -236,6 +279,38 @@ class TestCauchyMutation:
         result = s.handle_mutating(allele, [], [])
         assert result.value == pytest.approx(0.15)
 
+    def test_mutation_chance_skips_when_random_exceeds_chance(self):
+        # random returns 0.5, mutation_chance=0.3 → 0.5 > 0.3 → skip
+        s = _DeterministicCauchy([999.0], random_sequence=[0.5], default_mutation_chance=0.3)
+        result = s.handle_mutating(FloatAllele(0.5), [], [])
+        assert result.value == pytest.approx(0.5)
+
+    def test_mutation_chance_mutates_when_random_below_chance(self):
+        # random returns 0.1, mutation_chance=0.3 → 0.1 <= 0.3 → mutate
+        s = _DeterministicCauchy([0.05], random_sequence=[0.1], default_mutation_chance=0.3)
+        result = s.handle_mutating(FloatAllele(0.5), [], [])
+        assert result.value == pytest.approx(0.55)
+
+
+class TestCauchyScaleDomainPreservation:
+    def test_with_overrides_preserves_original_domain(self):
+        scale = CauchyScale(base_scale=0.1)
+        original_domain = scale.domain
+        updated = scale.with_overrides(value=0.5)
+        assert updated.domain == original_domain
+
+    def test_with_overrides_updates_value(self):
+        scale = CauchyScale(base_scale=0.1)
+        updated = scale.with_overrides(value=0.5)
+        assert updated.value == pytest.approx(0.5)
+
+    def test_domain_does_not_rescale_on_override(self):
+        scale = CauchyScale(base_scale=0.1)
+        # Original domain: min=0.001, max=1.0
+        updated = scale.with_overrides(value=1.0)
+        # If domain rescaled, it would be min=0.01, max=10.0. Must stay at original.
+        assert updated.domain["min"] == pytest.approx(0.001)
+        assert updated.domain["max"] == pytest.approx(1.0)
 
 
 # ─── DifferentialEvolution Tests ──────────────────────────────────────────────

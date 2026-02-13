@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test suite for TopN (10 tests)
 
 ### Changed
+- Rewrote genetics_lifecycle.md from scratch: correct architecture, responsibility boundaries, cross-module contracts, declare-interpret separation
+- Added genetics_lifecycle.md to CLAUDE.md critical context list
 - Fixed crossbreeding_strategies.md to use allele_population parameter name (was incorrectly using sources, inconsistent with the v0.4.0 rename)
 - Reorganized strategy tests into abstract/ and concrete/ subdirectories under tests/genetics/strategies/
 - TournamentSelection parameter renamed num_parents → num_tournaments (semantically distinct: counts tournament rounds, not parents)

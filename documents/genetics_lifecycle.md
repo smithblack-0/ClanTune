@@ -1,231 +1,108 @@
 # Genetics Lifecycle
 
-This document describes the high-level lifecycle of the genetic system in ClanTune, from raw parameters to adaptive metalearning structures. This system is called into by the clan package to handle the genetic learning abilities 
+Genetics is the reproduction library for clan training. Individual training processes call into it when a round ends and the population needs to evolve. Genetics takes genomes with fitness scores, applies selection and genetic operations, and returns offspring genomes ready for the next round. It does not train models, compute fitness, or coordinate between processes.
+
+Genetics is abstractly responsible for all reproduction. It decides what offspring should be — both the alleles they carry and the ancestry distribution that specifies how they were derived from parents. It is concretely responsible for genome reproduction: offspring alleles are fully resolved by the genetics pipeline. Model and optimizer reconstruction use the ancestry distribution genetics produces, but the implementation of that reconstruction is downstream of genetics. The ancestry distribution is the handoff point: genetics owns the decision, downstream systems own the execution.
+
+This is a vision document. Concrete specifications for each component live under `documents/genetics/`. This document captures the architecture, responsibility boundaries, and contracts that span components — things no individual spec can establish alone.
 
 ---
 
-## Overview
-
-The genetic system operates in distinct phases. Note critically that this happens in tandem with the main clan tune system and thus main model training. The evaluation step goes through the relevant cooperative/competitive phases. It should be kept in mind the genetics package is designed to be called into by higher level orchestration systems located in the clan package; "orchestration" refers primarily to responsibilities such as individual or state in clan.  
-
-### Note
-
-This is a living vision and guidance document. As such, it is something of an abstract not concrete spec. As concrete specs are designed and created, changes should be backpropogated into this document if possible. Still, it might end up slightly out of date. 
-
-This is not a full specification, more analogous to an abstract specification listing major points of integration. As such, there will be methods or responsibilities that are not listed in this document.
-
-### Design
-
-The genetics system conceptually has a frontend and a backend. The frontend is where external users interface with the system, while the backend is of deeper concern when programming strategies and other utilities. Regardless, the intention is that programming for this unit uses utility methods and hooks rather than have concrete instances handle tree walking and processing directly; largely, the user defines processing functions that are applied where relevant. 
-
-**User/Frontend Access:**
-- Direct interaction with genome datastructure
-- Operations: `add_hyperparameter(name, allele)`, `as_hyperparameters()`, `set_fitness()`, `get_fitness()`
-- Simple, immediate access to genetic material
-- Used during genome construction and result extraction
-
-### Orchestration
-
-Orchestration is imposed externally, not internally. This may change as development occurs. Nonetheless, the genetics package is intended to be called into. The setup phase involves creation of actual nodes. The execution phase edits the value in nodes of existing datastructures. 
-
-A rough outline is as follows
-
-1. **Setup**:
-   * Process is created; communication setup.
-   * Create empty genome; other systems create same model on all devices, or load from checkpoint
-   * Populate empty genome with flat alleles for hyperparameters
-   * Inject metalearning alleles if relevant using setup_strategies
-2. **Execution Loop**
-    * Orchestration systems elsewhere evaluate and set fitness on genomes: Main training process including cooperative phase and duty cycles, ending in a validation loss. This is set as genome fitness
-    * Orchestration systems gather genomes from all devices.
-    * Orchestration systems call into crossbreeding; down to one genome again based on fitness.
-    * Orchestration systems call into mutation; genome mutates.
-    * Orchestration systems builds new individual based on genome.
-
-One final thing of note is orchestration passes populations around as a list where the index corrosponds to the rank.
-
-### Subclassing and Implementing
-
-Strategy and infrastructure access are subclasses that have to be defined internally. 
-
-Datastructures follow a pattern where datastructures are defined with utilities such as walkers or updaters that take a "handler" function per node and handle the process, in a fairly functional manner. Concrete subclasses are intended to be coded with hooks that can be overridden, with those hooks ultimately being injected into the processing system by these kinds of utilities after whatever mangling is needed. 
-
-- Indirect interaction via handlers passed to walking utilities
-- Strategies provide small handler functions, genome/allele utilities handle traversal
-- Handlers receive alleles with context (e.g., `is_hyperparameter` flag)
-- During setup: strategies MAY insert tree nodes (metaparameters into metadata) - they code ONLY this part
-- During apply: strategies are expected to manipulate the values in trees
-- Walking/synthesis logic coded ONCE at genome/allele level
-- Strategies stay lightweight and decoupled - no knowledge of genome structure
-
-## Component Responsibilities
+## Components
 
 ### Alleles
 
-The alleles.py file.
+Alleles are the atomic unit of genetic material. Each is an immutable tree: a value, domain constraints, and a metadata dictionary. Concrete allele types divide into continuous (FloatAllele, IntAllele, LogFloatAllele) and discrete (BoolAllele, StringAllele). This distinction constrains strategy composition — continuous alleles support arithmetic operations like averaging and perturbation, discrete alleles support only selection between existing values.
 
-**The Allele Class**
-AbstractAllele is the internal tree datastructure. Concrete types: FloatAllele, IntAllele, LogFloatAllele, BoolAllele, StringAllele. Each represents a single genetic parameter with value, domain, and metadata. It is intended to be interfaced using the provided walking nodes by their contract, not manipulated directly.
-- Store parameter value and domain constraints
-- Store metadata dict (tree datastructure for metalearning)
-  - MutationStrategy may inject alleles here for metalearning (GaussianStdAllele)
-  - Metadata CAN contain alleles, which CAN have their own metadata (recursive trees)
-- Provide tree walking utilities for allele trees (walk_tree, update_tree)
-- Handle serialization/deserialization of alleles via registry
-- Be subclassed for strategy-specific alleles (e.g., GaussianStd, GaussianMutationChance)
+Metadata field on alleles can contain other alleles, creating recursive trees. This is how metalearning works: mutation parameters like standard deviation or scale factors are themselves alleles nested in the metadata of the alleles they control. When the parent allele evolves, its metalearning parameters evolve with it.
 
-**The Allele Utilities**
+Tree walking and synthesis utilities live at the allele level. Strategies never traverse trees themselves but delegate — alleles provide handler functions, and utilities apply them at each node. This ensures traversal logic exists once and strategies remain decoupled from tree structure.
 
-Tree walking and synthesizing utilities exist as well, to walk collection of allele trees at the same time or even synthesize a tree out of an existing allele tree. These come as methods on the class, or freeform methods in the file. Regardless, the intention is that while creation of additional datastructure elements may sometimes occur manually, manipulation and editing is done almost entirely through the walker utilities. 
+### Genomes
 
-**What they DON'T do:**
-- Decide how to mutate (MutationStrategy's job)
-- Decide how to crossbreed (CrossbreedingStrategy's job)
-- Track fitness (Genome's job)
+A genome wraps a collection of named alleles with genome-level concerns: a UUID, fitness, ancestry, and arbitrary genome-level metadata. It is a thin coordination layer. Allele names can be anything; by convention, external systems set them to patch paths (e.g., `"optimizer/0/lr"`) indicating where the hyperparameter applies. This convention is externally imposed, not enforced by the genome.
 
-**Concrete types:**
-- **FloatAllele**: Linear floating point values
-- **IntAllele**: Integer values (float-backed, rounded)
-- **LogFloatAllele**: Log-space floating point (min > 0 required)
-- **BoolAllele**: Boolean flags ({True, False})
-- **StringAllele**: Discrete string choices
-
-### Genome
-
-**What it is:** The primary frontfacing genetics datastructure and associated utilities. Stores genetic material (alleles), tracks fitness, and provides walking/synthesis infrastructure for strategies.
-
-**The Genome class:**
-- Unique identifier (UUID) - immutable, set at creation. Note this can be passed in, but if none is manufactured.
-- Stores Dict[name, allele] mapping
-  - **Implementation note:** By convention, name encodes patch path for hyperparameters (e.g., "optimizer/0/lr"). However, this is externally caused by assignment, not enforced. 
-- Parents field: Optional[List[Tuple[float, UUID]]] - records contribution probabilities of parent genomes by uuid for model state inheritance (orchestrator uses this to resolve which parent models to sample from)
-- Fitness tracking (set_fitness, get_fitness) - stores evaluation result.
-- Immutable - all operations return new genomes.
-- Frontend access methods (add_hyperparameter, as_hyperparameters, etc.).
-- Handle serialization/deserialization of genomes, genome fields, and thus also alleles
-- Thin wrappers into module utilities on methods. 
-
-**Utilities (module-level functions):**
-
-The module utilities exist as stand alone behavior, and also in many cases can be accessed through thin wrappers on the methods. 
-
-- `walk_genomes(genomes, handler, ...)` - walk genome alleles across multiple genomes
-  - Walks hyperparameters and their trees in parallel
-- `synthesize_genomes(template_genome, genomes, handler, ...)` - synthesize new genome from multiple sources. Used in crossbreeding and mutation.
-
-**Instance convenience wrappers:**
-- `genome.walk(handler, ...)` - wraps `walk_genomes([self], handler)`
-  - Single-genome wrapper over multi-genome utility
-- `genome.update(handler, ...)` - wraps `synthesize_genomes(self, [self], handler)`
-  - Single-genome wrapper over multi-genome utility 
-- `genome.synthesize(genomes, handler, ...)` - automatically fills in the template genome as self, ensuring skipped alleles remain as they were originally. useful in crossbreeding
-
-**What it DOESN'T do:**
-- Mutation logic (MutationStrategy provides handlers)
-- Crossbreeding logic (CrossbreedingStrategy provides handlers)
-- Strategy parameter injection logic (strategies provide setup handlers)
-- Population-level selection/orchestration (higher-level concern)
+Genomes are immutable — all modifications return new instances. Genome utilities extend allele tree operations to named collections across multiple genomes. Genomes delegate all tree work to these utilities; they never manipulate alleles directly.
 
 ### Strategies
 
-Strategies are the main in-progress allele structure editors, and come in a crossbreed and a mutation flavor. They always have as a responsibility the need to handle their specific case when their apply method is called. They may, if so configured, also make their setup method inject additional metalearning alleles as well.
+Genetics decomposes reproduction into three independent concerns, each with an abstract base class:
 
-**The pattern:**
-- The root abstract class defines the apply_strategy as a necessary field, and provides both the setup_genome public interface and define the handle_setup hook subclasses can override.
-- The specialized abstract classes define their necessary apply_strategy abstract method, then release a new abstract method for handle_mutation or handle_crossbreed in whatever way is relevant. 
-- Concrete instances can override their relevant hooks. If metalearning is desired, they may also override the handle_setup hook to inject top-level alleles with metadata learning alleles.
-- Flags that are not present in metadata are instead filled in by default values
-- Strategies can respond to each other's flags. A allele injected by a crossbreeding strategy with can_mutate on will be responded to by the default mutation strategy, allowing complete metalearning.
+- **Ancestry** — Examines the fitness of the genome population and declares a parent probability distribution. Does not touch alleles. 
+- **Crossbreeding** — Receives the ancestry distribution and synthesizes offspring alleles from parent alleles. 
+- **Mutation** — Perturbs offspring alleles. May use population context for population-aware algorithms.
 
----
+These concerns do not coordinate with each other. Ancestry does not know how crossbreeding will use its distribution. Crossbreeding does not know what mutation will do. This independence enables composition — strategies are interchangeable by default, constrained only where a genuine requirement demands it.
 
-**AbstractStrategy:**
+All strategies extend a common AbstractStrategy root that provides optional metalearning setup infrastructure. Concrete strategies implement hooks for their specific algorithms. A **StrategyOrchestrator** composes the three concerns in sequence: select ancestry, crossbreed, mutate, attach ancestry to the offspring. The strategy orchestrator is the highest level of orchestration the genetics package itself manages.
 
-The abstract strategy is the root strategy class, and largely dedicated to metalearning support. It also exists to give a common ancestor to all strategies. 
+### Ancestry
 
-- Provides optional setup capability (inject metalearning if desired)
-- Public utility: `setup_genome(genome)->genome` - for injection of metalearning context. Publically available.
-- Hook: `handle_setup(allele) → allele` - Called against all top level alleles. Gives an opportunity to inject additional allele metadata. 
-- Setup injects ONLY metalearning trees (alleles in metadata), nothing else
-- If setup not called or metalearning disabled, apply uses strategy's internal defaults
-- Leaves `apply_strategy(*args, **kwargs)->genome` abstract - mutation and crossbreeding subclasses define their own signatures
+The ancestry distribution is the most consequential datastructure in the system because it is consumed outside of the genetics package in order to finish the parameters of a model. It is defined by an ancestry strategy.
 
-**AbstractMutationStrategy:**
+* **Ancestry**; `List[Tuple[float, UUID]]` — one entry per population member, indexed by rank. Each entry is a probability and the UUID of the genome at that rank. Probabilities sum to 1.0. Zero means no contribution.
 
-The mutation strategy is responsible for mutating active alleles. It can inject metalearning alleles to modify
-mutation parameters on the fly.
-
-- Schema: `apply_strategy(genome) → genome` (single genome in/out)
-- Hook: `handle_mutating(allele) → allele` - concrete strategy for mutation logic. Called against anything
-  where can_mutate flag is set to true. 
-- Reads metadata for parameters, falls back to internal defaults (e.g., `self.default_std`) when missing;
-  do not expect metadata to have necessary fields by default. 
-- Preserves genome.parents field (doesn't change model ancestry)
-
-**AbstractCrossbreedingStrategy:**
-
-The crossbreeding strategy is the primary location fitness is processed. It reduces many genomes including the primary one down to one. This proceeds in two primary phases. In the first one, we evaluate fitness and select the ancestry the genome we are building will be considered to have. In the second phase, we use this ancestry and process our allele and the population alleles into the allele for the next generation, handling statistical random processes. Note that the ancestry is exposed on the resulting genome, and must be exposed so the orchestrator can handle model and optimizer crossbreeding in whatever method it desired. 
-
-- Schema: `apply_strategy(my_genome, population_genomes) → genome` (multiple genomes in, single genome out)
-- Multi-genome operations (combine parent genomes into offspring)
-- Hook: `select_ancestry(my_genome, population_genomes)->ancestry` - concrete strategies decide which parents and contribution probabilities.
-  - Returns ancestry: `List[Tuple[float, uuid]]` mapping contribution probabilities to parent UUIDs.
-    All positions are filled; length is population and if unused probability is zero.
-  - Genome-level decision: "which parents, how much each contributes"
-  - Tournament, filtering, etc logic can go here.
-- Hook: `handle_crossbreeding(my_allele, population_alleles, ancestry) → allele`
-  - Allele-level execution: "combine these alleles using the ancestry, give me a new one"
-  - Supports a wide range of strategies for crossbreeding.
-- Sets offspring.parents to ancestry and fills in new genome with crossbreed allele.
+Inside the genetics package, crossbreeding strategies interpret this distribution to synthesize offspring alleles — weighted averaging, parent selection, stochastic sampling, depending on the strategy. Mutation strategies may use it to identify which population members are live for population-aware operations. Externally, orchestration uses them in determining how to crossbreed model parameters.
 
 ---
 
-**What strategies DON'T do:**
-- Compute fitness (evaluation's job)
-- Manipulate model state directly (parents field provides hints for orchestrator)
-- Require coordination between strategies (each independent)
+## Contracts
+
+### Declare-Interpret Separation
+
+Ancestry strategies declare. They produce an Ancestry then stop. Every downstream consumer interprets that distribution independently according to its own needs — crossbreeding blends alleles, mutation identifies live population members, model reconstruction samples parent tensors, and externally models have their parameters crossbreed. No interpreter coordinates with any other.
+
+This separation is what makes strategy composition work. Changing how parents are selected requires no changes to how alleles are synthesized or how models are reconstructed. The ancestry distribution is a stable interface between decisions that would otherwise be coupled. It also necessitates designing algorithms correctly; some common algorithms such as Simulated Binary Annealing instead need to be divided into an ancestry component and a crossbreeding component.
+
+The most common failure here is making ancestry decisions at the nonancestry component. A decision to filter down to two parents in crossbreeding and mutation will not correctly be reflected downstream in the model crossbreeding external systems as it was never reflected in ancestry. Downstream systems construct incoherent models from wrong parent tensors. Neither side can detect the other's failure. This is why ancestry is its own strategy class with explicit validation, and why such emphasis is placed on separating the responsibilities.
+
+### Hook-Based Delegation
+
+Strategies implement small handler functions — the decision logic for their specific concern. Abstract base classes orchestrate the machinery: walking genome trees, filtering alleles by predicate, flattening metadata, calling handlers, reconstructing results. Concrete strategies never see genome structure or tree layout. They receive individual alleles (or allele populations) and return alleles.
+
+This keeps strategies lightweight. A mutation strategy that adds Gaussian noise implements one handler function. The abstract base class handles everything else — finding the right alleles, providing population context, reassembling the genome.
+
+### Metalearning
+
+Strategy parameters can become evolvable. During setup, strategies may inject alleles into metadata representing their tunable parameters — mutation magnitude, crossover spread, scale factors. During execution, handlers read these from metadata with fallback to internal defaults. The handler code path is identical whether metalearning is active or not.
+
+This makes metalearning additive. Enabling it injects metadata alleles; disabling it removes them. No handler logic changes. Strategies can also respond to each other's injected metadata — an allele injected by a crossbreeding strategy with `can_mutate` enabled will be evolved by whatever mutation strategy is in play.
+
+### Immutability
+
+All genetic datastructures are immutable. Every modification returns a new instance. In a system where multiple processes hold references to shared genomes after communication, mutating a shared instance would corrupt state across processes invisibly. Immutability eliminates this class of failure entirely.
 
 ---
 
-## Lifecycle Details 
+## Lifecycle
 
-The genetics system enables population-based hyperparameter adaptation during ML training. A population of genomes evolves over training rounds, with each genome paired with a model+optimizer. Genomes control hyperparameters (learning rate, dropout, etc.), models hold weights. Evolution discovers effective hyperparameter schedules through selection pressure.
+Clan training is distributed — each population member lives on its own process with a genome, model, and optimizer. Processes train independently during rounds, communicate genomes at round boundaries, and call into genetics to reproduce. The lifecycle below describes the full round from the external perspective first, then unpacks what genetics does internally.
 
-Restating the flow from the introduction, we have: 
+### The Round
 
-1. **Setup**:
-   * Process is created; communication setup.
-   * Create empty genome; other systems create same model on all devices, or load from checkpoint
-   * Populate empty genome with flat alleles for hyperparameters
-   * Inject metalearning alleles if relevant using setup_strategies
-2. **Execution Loop**
-    * Orchestration systems elsewhere evaluate and set fitness on genomes: Main training process including cooperative phase and duty cycles, ending in a validation loss. This is set as genome fitness
-    * Orchestration systems gather genomes from all devices.
-    * Orchestration systems call into crossbreeding; down to one genome again based on fitness.
-    * Orchestration systems call into mutation; genome mutates.
-    * Orchestration systems builds new individual based on genome.
+Rounds are orchestrated from outside the genetics package as part of the main clan tune processes.
 
-It should be kept in mind the primary orchestration is external to the main genomes package, as it requires integration of the model and optimizer state. 
+**Setup** happens once at the start of training. Each process is responsible for arriving at a genome populated with alleles for its tracked hyperparameters — one allele per parameter, initially flat values. Strategy setup is called on each genome to allow strategies to inject metalearning structure into allele metadata. The process then creates a model and optimizer paired with the genome.
 
-### Setup Phase
+**Evolution Loop.**
+* **Training.** Each process trains using its genome's hyperparameters through cooperative and competitive phases. At round end, validation performance is computed and assigned to the genome as fitness.
+* **Communication.** Each process hands its genome to a communicator and receives back the full collection of genomes from all processes. This collected set — indexed by rank — is the population.
+* **Reproduction.** The process calls the StrategyOrchestrator, passing its genome and the population. Genetics runs internally and returns an offspring genome carrying resolved alleles and an ancestry distribution. This is the genetics responsibility.
+* **Expression.** The process reads the offspring's ancestry distribution and uses it to construct a new model and optimizer state from parent states — the ancestry probabilities determine which parents contribute to each parameter tensor. This is the final interpretation of the ancestry that genetics declared.  The offspring genome's hyperparameters are expressed into the new training configuration. The next round begins.
 
-Population initialization begins with genome creation. Each genome is populated with hyperparameters as flat alleles - simple parameter values like `FloatAllele(0.001)` for learning rate or `IntAllele(256)` for batch size. Alleles are named by patch path convention (e.g., "optimizer/0/lr") indicating where they apply in the training configuration; this however is primarily caused externally by setting their name to such.
 
-Strategy setup follows. Each strategy (mutation, crossbreeding) can inject metalearning genes into alleles if configured to do so, at which point those metadata alleles will then begin to respond appropriately to the default configuration in the strategies. 
+Over many rounds, genomes converge toward effective hyperparameter schedules through selection pressure. Metalearning parameters co-evolve, adjusting exploration intensity per gene as the population matures.
 
-For each genome, the orchestration mechanism initializes a corresponding model and optimizer. This pairing - genome + model + optimizer - forms a population member; the genetics system's responsibility is managing and manipulating the genome attached to it. The genome's parents field is initially None (no genetic history yet). The population is now ready for the evolution loop.
+### Inside the Setup Pipeline
 
-### Execution Loop
+When the orchestrator is asked to setup the genome, it calls the setup method on the ancestry, crossbreeding, and mutation strategy in that order. It then returns the revised genome.
 
-The evolution loop runs in rounds. Each round consists of evaluation, selection, genetic operations, and implementation.
+### Inside the Genetics Pipeline
 
-**Evaluation:** Each population member trains for a round using its genome's hyperparameters to configure training (learning rate schedule, regularization, etc.). At round end, fitness is computed using validation loss and assigned to the genome via set_fitness(). Genomes are then extracted from the population class for evaluation.
+When the StrategyOrchestrator is called, it runs three stages in sequence. Each stage is an independent strategy that communicates with the others only through the ancestry distribution.
 
-**Selection and Genetic Operations:** The orchestrator applies the crossbreeding strategy. Crossbreeding strategies combine parent genomes to produce offspring genomes. The strategy's select_ancestry hook decides which parents contribute and with what probabilities, returning ancestry as `List[Tuple[float, uuid]]` in rank order with the selection probability and the parent uuid. The offspring genome receives this ancestry in its parents field - recording its genetic lineage. Metadata hooks are read first, then falling back to default if not used or present.
+**Ancestry selection.** The ancestry strategy examines fitness across the population and produces an ancestry distribution — which parents contribute to this process's offspring, and with what probability. This is a declaration: the strategy evaluates and decides, but does not act on the decision. No alleles are touched.
+**Crossbreeding.** The crossbreeding strategy receives the population and the ancestry distribution. It walks the offspring genome's allele trees, and at each node, its handler synthesizes a new allele value from the parent alleles according to the ancestry. The interpretation is strategy-specific — weighted averaging, dominant parent selection, stochastic sampling, or other approaches.
+**Mutation.** The mutation strategy walks the offspring allele trees and perturbs values. Handlers read metalearning parameters from allele metadata when present, falling back to the strategy's internal defaults. Population-aware strategies use the ancestry distribution to identify contributing parents and compute perturbations from population structure.
 
-Mutation strategies modify offspring genomes. The handle_mutating hook applies mutations to alleles, reading metadata for parameters like std or mutation_chance and falling back to strategy internal defaults when metadata is absent. Mutation preserves the genome.parents field - the genetic lineage remains intact.
-
-**Implementation:** For each offspring genome, a new population member must be constructed. The orchestrator reads genome.parents ancestry to determine how to construct the offspring model from parent models and optimizer state; the exact implementation is part of that portion of the model. The offspring genome's hyperparameters configure the new training run, with the final "phase" of crossbreeding being handled at the genetics/model interface. 
-
-The new population (offspring genomes + models) replaces poor performers, and the next round begins. Over many rounds, genomes evolve toward effective hyperparameter schedules through selection pressure.
-
+The orchestrator then attaches the ancestry distribution to the offspring genome, ensuring downstream systems can read it. The offspring is returned with fitness unset and a new UUID — ready for the next round. Expression of the new genome in terms of model and inserted hyperparameter is an orchestrator job. 

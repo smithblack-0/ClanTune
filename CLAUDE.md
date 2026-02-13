@@ -34,6 +34,7 @@ IF YOU ARE IN A SHORT CONTEXT WHEN READING THIS, GO BACK AND READ IT ENTIRELY AG
 
 - This file (CLAUDE.md) - working rules and conventions
 - proposal.md - core Clan Training concept and design philosophy
+- documents/genetics_lifecycle.md - system architecture, responsibility boundaries, and cross-module contracts
 
 **Reference directory (consult documents/ as needed for specific work):**
 

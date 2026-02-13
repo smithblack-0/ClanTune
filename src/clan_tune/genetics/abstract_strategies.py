@@ -97,7 +97,9 @@ class AbstractAncestryStrategy(AbstractStrategy):
     """
 
     def apply_strategy(
-        self, my_genome: Genome, population: List[Genome]
+        self,
+        my_genome: Genome,
+        population: List[Genome],
     ) -> List[Tuple[float, UUID]]:
         """
         Select parents and declare contribution probabilities.
